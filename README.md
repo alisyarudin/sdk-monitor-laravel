@@ -16,6 +16,25 @@ php artisan monitor:test
 
 DSN ada di dashboard Jasnita Monitor, halaman project (klik untuk menyalin).
 
+<details>
+<summary>Belum terdaftar di Packagist? Pasang langsung dari GitHub</summary>
+
+Daftarkan repo ini sebagai sumber paket di aplikasi Anda, lalu pasang seperti biasa:
+
+```bash
+composer config repositories.jasnita vcs https://github.com/alisyarudin/sdk-monitor-laravel
+composer require jasnita/monitor-laravel:dev-main
+```
+
+`dev-main` = versi terbaru di branch `main`. Bila repo sudah punya tag rilis (mis. `v1.0.0`), pakai versinya supaya tidak ikut berubah tiap ada commit baru:
+
+```bash
+composer require jasnita/monitor-laravel:^1.0
+```
+
+Setelah paket terdaftar di Packagist, baris `repositories` itu boleh dihapus dari `composer.json`.
+</details>
+
 Sudah. Pada Laravel 8 ke atas pelapor exception terpasang otomatis — tidak ada yang perlu diubah di `bootstrap/app.php` maupun `Handler.php`.
 
 <details>
