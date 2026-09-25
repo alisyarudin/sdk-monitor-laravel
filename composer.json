@@ -1,0 +1,30 @@
+{
+    "name": "jasnita/monitor-laravel",
+    "description": "Agent Jasnita Monitor untuk Laravel: error, performa, dan breadcrumb dikirim ke server Jasnita Monitor.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["laravel", "monitoring", "error-tracking", "jasnita"],
+    "authors": [
+        { "name": "Ali Syarudin", "email": "ali.syarudin@jasnita.com" }
+    ],
+    "require": {
+        "php": "^7.2 | ^8.0",
+        "illuminate/support": "^6.0 | ^7.0 | ^8.0 | ^9.0 | ^10.0 | ^11.0 | ^12.0",
+        "sentry/sentry-laravel": "^4.0"
+    },
+    "autoload": {
+        "psr-4": { "Jasnita\\Monitor\\": "src/" }
+    },
+    "extra": {
+        "laravel": {
+            "providers": ["Jasnita\\Monitor\\MonitorServiceProvider"],
+            "aliases": { "Monitor": "Jasnita\\Monitor\\Facades\\Monitor" }
+        }
+    },
+    "support": {
+        "issues": "https://github.com/alisyarudin/sdk-monitor-laravel/issues",
+        "source": "https://github.com/alisyarudin/sdk-monitor-laravel"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
