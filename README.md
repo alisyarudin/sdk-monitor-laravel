@@ -2,7 +2,7 @@
 
 Agent **Jasnita Monitor** untuk Laravel: exception, performa request/queue, dan breadcrumb (query, log, HTTP client) dikirim ke server Jasnita Monitor.
 
-- Laravel 6–12, PHP 7.2+
+- Laravel 6–12, PHP 7.2+ (diuji: Laravel 6 + PHP 7.4, Laravel 10 & 12 + PHP 8.2)
 - Pasang tanpa mengubah berkas aplikasi (Laravel 8+)
 - Password, token, cookie disaring di server walaupun klien lupa mengatur apa pun
 
@@ -40,13 +40,15 @@ Sudah. Pada Laravel 8 ke atas pelapor exception terpasang otomatis — tidak ada
 <details>
 <summary>Laravel 6 / 7</summary>
 
-Belum punya `reportable()`, jadi tambahkan di `app/Exceptions/Handler.php`:
+Belum punya `reportable()`, jadi tambahkan di `app/Exceptions/Handler.php`
+(Laravel 6 memakai `Exception`, Laravel 7 `Throwable` — ikuti tanda tangan
+method `report()` yang sudah ada di berkas Anda):
 
 ```php
-public function report(Throwable $e)
+public function report(Exception $exception)   // Laravel 7: Throwable $exception
 {
-    \Jasnita\Monitor\Laravel\Integration::captureUnhandledException($e);
-    parent::report($e);
+    \Jasnita\Monitor\Laravel\Integration::captureUnhandledException($exception);
+    parent::report($exception);
 }
 ```
 
