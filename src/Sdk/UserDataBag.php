@@ -130,15 +130,13 @@ final class UserDataBag
      *
      * @param string|int|null $id The ID
      */
-    public function setId($id): self
+    public function setId($id): void
     {
-        if ($id !== null && !\is_string($id) && !\is_int($id)) {
-            throw new \UnexpectedValueException(\sprintf('Expected an integer or string value for the $id argument. Got: "%s".', get_debug_type($id)));
+        if (null !== $id && !\is_string($id) && !\is_int($id)) {
+            throw new \UnexpectedValueException(sprintf('Expected an integer or string value for the $id argument. Got: "%s".', get_debug_type($id)));
         }
 
         $this->id = $id;
-
-        return $this;
     }
 
     /**
@@ -154,11 +152,9 @@ final class UserDataBag
      *
      * @param string|null $username The username
      */
-    public function setUsername(?string $username): self
+    public function setUsername(?string $username): void
     {
         $this->username = $username;
-
-        return $this;
     }
 
     /**
@@ -174,17 +170,13 @@ final class UserDataBag
      *
      * @param string|null $email The email
      */
-    public function setEmail(?string $email): self
+    public function setEmail(?string $email): void
     {
         $this->email = $email;
-
-        return $this;
     }
 
     /**
      * Gets the segement of the user.
-     *
-     * @deprecated since version 4.4. To be removed in version 5.0
      */
     public function getSegment(): ?string
     {
@@ -195,14 +187,10 @@ final class UserDataBag
      * Sets the segment of the user.
      *
      * @param string|null $segment The segment
-     *
-     * @deprecated since version 4.4. To be removed in version 5.0. You may use a custom tag or context instead.
      */
-    public function setSegment(?string $segment): self
+    public function setSegment(?string $segment): void
     {
         $this->segment = $segment;
-
-        return $this;
     }
 
     /**
@@ -218,30 +206,13 @@ final class UserDataBag
      *
      * @param string|null $ipAddress The ip address
      */
-    public function setIpAddress(?string $ipAddress): self
+    public function setIpAddress(?string $ipAddress): void
     {
-        if ($ipAddress !== null) {
-            // Strip brackets from IPv6 addresses (e.g. [::1] -> ::1)
-            if (strpos($ipAddress, '[') === 0 && substr($ipAddress, -1) === ']') {
-                $ipAddress = substr($ipAddress, 1, -1);
-            }
-
-            if (filter_var($ipAddress, \FILTER_VALIDATE_IP) === false) {
-                $client = JasnitaSdk::getCurrentHub()->getClient();
-
-                if ($client !== null) {
-                    $client->getOptions()->getLoggerOrNullLogger()->debug(
-                        \sprintf('The "%s" value is not a valid IP address.', $ipAddress)
-                    );
-                }
-
-                return $this;
-            }
+        if (null !== $ipAddress && false === filter_var($ipAddress, \FILTER_VALIDATE_IP)) {
+            throw new \InvalidArgumentException(sprintf('The "%s" value is not a valid IP address.', $ipAddress));
         }
 
         $this->ipAddress = $ipAddress;
-
-        return $this;
     }
 
     /**
@@ -260,11 +231,9 @@ final class UserDataBag
      * @param string $name  The name of the field
      * @param mixed  $value The value
      */
-    public function setMetadata(string $name, $value): self
+    public function setMetadata(string $name, $value): void
     {
         $this->metadata[$name] = $value;
-
-        return $this;
     }
 
     /**
@@ -272,11 +241,9 @@ final class UserDataBag
      *
      * @param string $name The name of the field
      */
-    public function removeMetadata(string $name): self
+    public function removeMetadata(string $name): void
     {
         unset($this->metadata[$name]);
-
-        return $this;
     }
 
     /**

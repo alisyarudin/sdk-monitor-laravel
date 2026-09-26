@@ -6,7 +6,7 @@ namespace Jasnita\Monitor\Sdk\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Jasnita\Monitor\Sdk\Breadcrumb;
-use Jasnita\Monitor\Sdk\Tests\TestUtil\ClockMock;
+use Symfony\Bridge\PhpUnit\ClockMock;
 
 final class BreadcrumbTest extends TestCase
 {

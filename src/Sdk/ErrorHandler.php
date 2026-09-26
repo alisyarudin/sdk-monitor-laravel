@@ -13,7 +13,7 @@ use Jasnita\Monitor\Sdk\Exception\SilencedErrorException;
  * error handler more than once is not supported and will lead to nasty
  * problems. The code is based on the Symfony ErrorHandler component.
  *
- * @phpstan-import-type StacktraceFrame from FrameBuilder
+ * @psalm-import-type StacktraceFrame from FrameBuilder
  */
 final class ErrorHandler
 {
@@ -44,21 +44,21 @@ final class ErrorHandler
     /**
      * @var callable[] List of listeners that will act on each captured error
      *
-     * @phpstan-var (callable(\ErrorException): void)[]
+     * @psalm-var (callable(\ErrorException): void)[]
      */
     private $errorListeners = [];
 
     /**
      * @var callable[] List of listeners that will act of each captured fatal error
      *
-     * @phpstan-var (callable(FatalErrorException): void)[]
+     * @psalm-var (callable(FatalErrorException): void)[]
      */
     private $fatalErrorListeners = [];
 
     /**
      * @var callable[] List of listeners that will act on each captured exception
      *
-     * @phpstan-var (callable(\Throwable): void)[]
+     * @psalm-var (callable(\Throwable): void)[]
      */
     private $exceptionListeners = [];
 
@@ -76,7 +76,7 @@ final class ErrorHandler
     /**
      * @var callable|null The previous exception handler, if any
      *
-     * @phpstan-var (callable(\Throwable): void)|null
+     * @psalm-var null|callable(\Throwable): void
      */
     private $previousExceptionHandler;
 
@@ -101,24 +101,16 @@ final class ErrorHandler
     private $memoryLimitIncreaseOnOutOfMemoryErrorValue = 5 * 1024 * 1024; // 5 MiB
 
     /**
-     * @var Options|null The SDK options
-     */
-    private $options;
-
-    /**
      * @var bool Whether the memory limit has been increased
      */
     private static $didIncreaseMemoryLimit = false;
 
     /**
      * @var string|null A portion of pre-allocated memory data that will be reclaimed in case a fatal error occurs to handle it
+     *
+     * @phpstan-ignore-next-line This property is used to reserve memory for the fatal error handler and is thus never read
      */
     private static $reservedMemory;
-
-    /**
-     * @var int The amount of memory to reserve for the fatal error handler
-     */
-    private static $reservedMemorySize = self::DEFAULT_RESERVED_MEMORY_SIZE;
 
     /**
      * @var bool Whether the fatal error handler should be disabled
@@ -133,8 +125,7 @@ final class ErrorHandler
         \E_USER_DEPRECATED => 'User Deprecated',
         \E_NOTICE => 'Notice',
         \E_USER_NOTICE => 'User Notice',
-        // This is \E_STRICT which has been deprecated in PHP 8.4 so we should not reference it directly to prevent deprecation notices
-        2048 => 'Runtime Notice',
+        \E_STRICT => 'Runtime Notice',
         \E_WARNING => 'Warning',
         \E_USER_WARNING => 'User Warning',
         \E_COMPILE_WARNING => 'Compile Warning',
@@ -156,21 +147,17 @@ final class ErrorHandler
     private function __construct()
     {
         $this->exceptionReflection = new \ReflectionProperty(\Exception::class, 'trace');
-        if (\PHP_VERSION_ID < 80100) {
-            $this->exceptionReflection->setAccessible(true);
-        }
+        $this->exceptionReflection->setAccessible(true);
     }
 
     /**
      * Registers the error handler once and returns its instance.
      */
-    public static function registerOnceErrorHandler(?Options $options = null): self
+    public static function registerOnceErrorHandler(): self
     {
-        if (self::$handlerInstance === null) {
+        if (null === self::$handlerInstance) {
             self::$handlerInstance = new self();
         }
-
-        self::$handlerInstance->options = $options;
 
         if (self::$handlerInstance->isErrorHandlerRegistered) {
             return self::$handlerInstance;
@@ -181,7 +168,7 @@ final class ErrorHandler
         self::$handlerInstance->isErrorHandlerRegistered = true;
         self::$handlerInstance->previousErrorHandler = set_error_handler($errorHandlerCallback);
 
-        if (self::$handlerInstance->previousErrorHandler === null) {
+        if (null === self::$handlerInstance->previousErrorHandler) {
             restore_error_handler();
 
             // Specifying the error types caught by the error handler with the
@@ -208,7 +195,7 @@ final class ErrorHandler
             throw new \InvalidArgumentException('The $reservedMemorySize argument must be greater than 0.');
         }
 
-        if (self::$handlerInstance === null) {
+        if (null === self::$handlerInstance) {
             self::$handlerInstance = new self();
         }
 
@@ -217,7 +204,6 @@ final class ErrorHandler
         }
 
         self::$handlerInstance->isFatalErrorHandlerRegistered = true;
-        self::$reservedMemorySize = $reservedMemorySize;
         self::$reservedMemory = str_repeat('x', $reservedMemorySize);
 
         register_shutdown_function(\Closure::fromCallable([self::$handlerInstance, 'handleFatalError']));
@@ -232,7 +218,7 @@ final class ErrorHandler
      */
     public static function registerOnceExceptionHandler(): self
     {
-        if (self::$handlerInstance === null) {
+        if (null === self::$handlerInstance) {
             self::$handlerInstance = new self();
         }
 
@@ -254,7 +240,7 @@ final class ErrorHandler
      *                           and that must accept a single argument
      *                           of type \ErrorException
      *
-     * @phpstan-param callable(\ErrorException): void $listener
+     * @psalm-param callable(\ErrorException): void $listener
      */
     public function addErrorHandlerListener(callable $listener): void
     {
@@ -269,7 +255,7 @@ final class ErrorHandler
      *                           and that must accept a single argument
      *                           of type \Jasnita\Monitor\Sdk\Exception\FatalErrorException
      *
-     * @phpstan-param callable(FatalErrorException): void $listener
+     * @psalm-param callable(FatalErrorException): void $listener
      */
     public function addFatalErrorHandlerListener(callable $listener): void
     {
@@ -284,7 +270,7 @@ final class ErrorHandler
      *                           and that must accept a single argument
      *                           of type \Throwable
      *
-     * @phpstan-param callable(\Throwable): void $listener
+     * @psalm-param callable(\Throwable): void $listener
      */
     public function addExceptionHandlerListener(callable $listener): void
     {
@@ -298,27 +284,11 @@ final class ErrorHandler
      */
     public function setMemoryLimitIncreaseOnOutOfMemoryErrorInBytes(?int $valueInBytes): void
     {
-        if ($valueInBytes !== null && $valueInBytes <= 0) {
+        if (null !== $valueInBytes && $valueInBytes <= 0) {
             throw new \InvalidArgumentException('The $valueInBytes argument must be greater than 0 or null.');
         }
 
         $this->memoryLimitIncreaseOnOutOfMemoryErrorValue = $valueInBytes;
-    }
-
-    /**
-     * @internal
-     */
-    public static function resetFatalErrorHandlerState(): void
-    {
-        self::$disableFatalErrorHandler = false;
-        self::$didIncreaseMemoryLimit = false;
-
-        if (self::$handlerInstance !== null
-            && self::$handlerInstance->isFatalErrorHandlerRegistered
-            && self::$reservedMemory === null
-        ) {
-            self::$reservedMemory = str_repeat('x', self::$reservedMemorySize);
-        }
     }
 
     /**
@@ -339,7 +309,7 @@ final class ErrorHandler
      */
     private function handleError(int $level, string $message, string $file, int $line, ?array $errcontext = []): bool
     {
-        $isSilencedError = error_reporting() === 0;
+        $isSilencedError = 0 === error_reporting();
 
         if (\PHP_MAJOR_VERSION >= 8) {
             // Starting from PHP8, when a silenced error occurs the `error_reporting()`
@@ -356,39 +326,23 @@ final class ErrorHandler
             }
         }
 
-        if ($this->shouldHandleError($level, $isSilencedError)) {
-            if ($isSilencedError) {
-                $errorAsException = new SilencedErrorException(self::ERROR_LEVELS_DESCRIPTION[$level] . ': ' . $message, 0, $level, $file, $line);
-            } else {
-                $errorAsException = new \ErrorException(self::ERROR_LEVELS_DESCRIPTION[$level] . ': ' . $message, 0, $level, $file, $line);
-            }
-
-            $backtrace = $this->cleanBacktraceFromErrorHandlerFrames($errorAsException->getTrace(), $errorAsException->getFile(), $errorAsException->getLine());
-
-            $this->exceptionReflection->setValue($errorAsException, $backtrace);
-
-            $this->invokeListeners($this->errorListeners, $errorAsException);
+        if ($isSilencedError) {
+            $errorAsException = new SilencedErrorException(self::ERROR_LEVELS_DESCRIPTION[$level] . ': ' . $message, 0, $level, $file, $line);
+        } else {
+            $errorAsException = new \ErrorException(self::ERROR_LEVELS_DESCRIPTION[$level] . ': ' . $message, 0, $level, $file, $line);
         }
 
-        if ($this->previousErrorHandler !== null) {
+        $backtrace = $this->cleanBacktraceFromErrorHandlerFrames($errorAsException->getTrace(), $errorAsException->getFile(), $errorAsException->getLine());
+
+        $this->exceptionReflection->setValue($errorAsException, $backtrace);
+
+        $this->invokeListeners($this->errorListeners, $errorAsException);
+
+        if (null !== $this->previousErrorHandler) {
             return false !== ($this->previousErrorHandler)($level, $message, $file, $line, $errcontext);
         }
 
         return false;
-    }
-
-    private function shouldHandleError(int $level, bool $silenced): bool
-    {
-        // If we were not given any options, we should handle all errors
-        if ($this->options === null) {
-            return true;
-        }
-
-        if ($silenced) {
-            return $this->options->shouldCaptureSilencedErrors();
-        }
-
-        return ($this->options->getErrorTypes() & $level) !== 0;
     }
 
     /**
@@ -409,20 +363,13 @@ final class ErrorHandler
 
         if (!empty($error) && $error['type'] & (\E_ERROR | \E_PARSE | \E_CORE_ERROR | \E_CORE_WARNING | \E_COMPILE_ERROR | \E_COMPILE_WARNING)) {
             // If we did not do so already and we are allowed to increase the memory limit, we do so when we detect an OOM error
-            if (self::$didIncreaseMemoryLimit === false
-                && $this->memoryLimitIncreaseOnOutOfMemoryErrorValue !== null
-                && preg_match(self::OOM_MESSAGE_MATCHER, $error['message'], $matches) === 1
+            if (false === self::$didIncreaseMemoryLimit
+                && null !== $this->memoryLimitIncreaseOnOutOfMemoryErrorValue
+                && 1 === preg_match(self::OOM_MESSAGE_MATCHER, $error['message'], $matches)
             ) {
                 $currentMemoryLimit = (int) $matches['memory_limit'];
-                $newMemoryLimit = $currentMemoryLimit + $this->memoryLimitIncreaseOnOutOfMemoryErrorValue;
 
-                // It can happen that the memory limit + increase is still lower than
-                // the memory that is currently being used. This produces warnings
-                // that may end up in Jasnita. To prevent this, we can check the real
-                // usage before.
-                if ($newMemoryLimit > memory_get_usage(true)) {
-                    $this->setMemoryLimitWithoutHandlingWarnings($newMemoryLimit);
-                }
+                ini_set('memory_limit', (string) ($currentMemoryLimit + $this->memoryLimitIncreaseOnOutOfMemoryErrorValue));
 
                 self::$didIncreaseMemoryLimit = true;
             }
@@ -455,7 +402,7 @@ final class ErrorHandler
         $this->previousExceptionHandler = null;
 
         try {
-            if ($previousExceptionHandler !== null) {
+            if (null !== $previousExceptionHandler) {
                 $previousExceptionHandler($exception);
 
                 return;
@@ -480,23 +427,6 @@ final class ErrorHandler
     }
 
     /**
-     * Set the memory_limit while having no real error handler so that a warning emitted
-     * will not get reported.
-     */
-    private function setMemoryLimitWithoutHandlingWarnings(int $memoryLimit): void
-    {
-        set_error_handler(static function (): bool {
-            return true;
-        }, \E_WARNING);
-
-        try {
-            ini_set('memory_limit', (string) $memoryLimit);
-        } finally {
-            restore_error_handler();
-        }
-    }
-
-    /**
      * Cleans and returns the backtrace without the first frames that belong to
      * this error handler.
      *
@@ -504,9 +434,9 @@ final class ErrorHandler
      * @param string                           $file      The filename the backtrace was raised in
      * @param int                              $line      The line number the backtrace was raised at
      *
-     * @phpstan-param list<StacktraceFrame> $backtrace
-     *
      * @return array<int, mixed>
+     *
+     * @psalm-param list<StacktraceFrame> $backtrace
      */
     private function cleanBacktraceFromErrorHandlerFrames(array $backtrace, string $file, int $line): array
     {

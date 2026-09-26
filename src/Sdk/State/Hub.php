@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Jasnita\Monitor\Sdk\State;
 
-use Psr\Log\NullLogger;
-use Jasnita\Monitor\Sdk\Attachment\Attachment;
 use Jasnita\Monitor\Sdk\Breadcrumb;
 use Jasnita\Monitor\Sdk\CheckIn;
 use Jasnita\Monitor\Sdk\CheckInStatus;
@@ -24,7 +22,7 @@ use Jasnita\Monitor\Sdk\Tracing\TransactionContext;
 /**
  * This class is a basic implementation of the {@see HubInterface} interface.
  */
-class Hub implements HubInterface
+final class Hub implements HubInterface
 {
     /**
      * @var Layer[] The stack of client/scope pairs
@@ -80,11 +78,11 @@ class Hub implements HubInterface
      */
     public function popScope(): bool
     {
-        if (\count($this->stack) === 1) {
+        if (1 === \count($this->stack)) {
             return false;
         }
 
-        return array_pop($this->stack) !== null;
+        return null !== array_pop($this->stack);
     }
 
     /**
@@ -125,7 +123,7 @@ class Hub implements HubInterface
     {
         $client = $this->getClient();
 
-        if ($client !== null) {
+        if (null !== $client) {
             return $this->lastEventId = $client->captureMessage($message, $level, $this->getScope(), $hint);
         }
 
@@ -139,7 +137,7 @@ class Hub implements HubInterface
     {
         $client = $this->getClient();
 
-        if ($client !== null) {
+        if (null !== $client) {
             return $this->lastEventId = $client->captureException($exception, $this->getScope(), $hint);
         }
 
@@ -153,7 +151,7 @@ class Hub implements HubInterface
     {
         $client = $this->getClient();
 
-        if ($client !== null) {
+        if (null !== $client) {
             return $this->lastEventId = $client->captureEvent($event, $hint, $this->getScope());
         }
 
@@ -167,7 +165,7 @@ class Hub implements HubInterface
     {
         $client = $this->getClient();
 
-        if ($client !== null) {
+        if (null !== $client) {
             return $this->lastEventId = $client->captureLastError($this->getScope(), $hint);
         }
 
@@ -183,7 +181,7 @@ class Hub implements HubInterface
     {
         $client = $this->getClient();
 
-        if ($client === null) {
+        if (null === $client) {
             return null;
         }
 
@@ -211,7 +209,7 @@ class Hub implements HubInterface
     {
         $client = $this->getClient();
 
-        if ($client === null) {
+        if (null === $client) {
             return false;
         }
 
@@ -223,32 +221,13 @@ class Hub implements HubInterface
             return false;
         }
 
-        try {
-            $breadcrumb = $beforeBreadcrumbCallback($breadcrumb);
-        } catch (\Throwable $exception) {
-            $options->getLoggerOrNullLogger()->error(\sprintf('The "before_breadcrumb" callback failed with exception: "%s".', $exception->getMessage()));
+        $breadcrumb = $beforeBreadcrumbCallback($breadcrumb);
 
-            return false;
-        }
-
-        if ($breadcrumb !== null) {
+        if (null !== $breadcrumb) {
             $this->getScope()->addBreadcrumb($breadcrumb, $maxBreadcrumbs);
         }
 
-        return $breadcrumb !== null;
-    }
-
-    public function addAttachment(Attachment $attachment): bool
-    {
-        $client = $this->getClient();
-
-        if ($client === null) {
-            return false;
-        }
-
-        $this->getScope()->addAttachment($attachment);
-
-        return true;
+        return null !== $breadcrumb;
     }
 
     /**
@@ -258,7 +237,7 @@ class Hub implements HubInterface
     {
         $client = $this->getClient();
 
-        if ($client !== null) {
+        if (null !== $client) {
             return $client->getIntegration($className);
         }
 
@@ -274,13 +253,10 @@ class Hub implements HubInterface
     {
         $transaction = new Transaction($context, $this);
         $client = $this->getClient();
-        $options = $client !== null ? $client->getOptions() : null;
-        $logger = $options !== null ? $options->getLoggerOrNullLogger() : new NullLogger();
+        $options = null !== $client ? $client->getOptions() : null;
 
-        if ($options === null || !$options->isTracingEnabled()) {
+        if (null === $options || !$options->isTracingEnabled()) {
             $transaction->setSampled(false);
-
-            $logger->warning(\sprintf('Transaction [%s] was started but tracing is not enabled.', (string) $transaction->getTraceId()), ['context' => $context]);
 
             return $transaction;
         }
@@ -288,98 +264,48 @@ class Hub implements HubInterface
         $samplingContext = SamplingContext::getDefault($context);
         $samplingContext->setAdditionalContext($customSamplingContext);
 
-        $sampleSource = 'context';
-        $sampleRand = $context->getMetadata()->getSampleRand();
+        $tracesSampler = $options->getTracesSampler();
 
-        if ($transaction->getSampled() === null) {
-            $tracesSampler = $options->getTracesSampler();
-
-            if ($tracesSampler !== null) {
-                try {
-                    $sampleRate = $tracesSampler($samplingContext);
-                    $sampleSource = 'config:traces_sampler';
-                } catch (\Throwable $exception) {
-                    $options->getLoggerOrNullLogger()->error(\sprintf('The "traces_sampler" callback failed with exception: "%s".', $exception->getMessage()));
-                    $sampleRate = $options->getTracesSampleRate() ?? 0;
-                    $sampleSource = 'config:traces_sampler_error_fallback';
-                }
+        if (null === $transaction->getSampled()) {
+            if (null !== $tracesSampler) {
+                $sampleRate = $tracesSampler($samplingContext);
             } else {
-                $parentSampleRate = $context->getMetadata()->getParentSamplingRate();
-                if ($parentSampleRate !== null) {
-                    $sampleRate = $parentSampleRate;
-                    $sampleSource = 'parent:sample_rate';
-                } else {
-                    $sampleRate = $this->getSampleRate(
-                        $samplingContext->getParentSampled(),
-                        $options->getTracesSampleRate() ?? 0
-                    );
-                    $sampleSource = $samplingContext->getParentSampled() !== null ? 'parent:sampling_decision' : 'config:traces_sample_rate';
-                }
+                $sampleRate = $this->getSampleRate(
+                    $samplingContext->getParentSampled(),
+                    $options->getTracesSampleRate() ?? 0
+                );
             }
 
             if (!$this->isValidSampleRate($sampleRate)) {
                 $transaction->setSampled(false);
-
-                $logger->warning(\sprintf('Transaction [%s] was started but not sampled because sample rate (decided by %s) is invalid.', (string) $transaction->getTraceId(), $sampleSource), ['context' => $context]);
 
                 return $transaction;
             }
 
             $transaction->getMetadata()->setSamplingRate($sampleRate);
 
-            // Always overwrite the sample_rate in the DSC
-            $dynamicSamplingContext = $context->getMetadata()->getDynamicSamplingContext();
-            if ($dynamicSamplingContext !== null) {
-                $dynamicSamplingContext->set('sample_rate', (string) $sampleRate, true);
-            }
-
-            if ($sampleRate === 0.0) {
+            if (0.0 === $sampleRate) {
                 $transaction->setSampled(false);
-
-                $logger->info(\sprintf('Transaction [%s] was started but not sampled because sample rate (decided by %s) is %s.', (string) $transaction->getTraceId(), $sampleSource, $sampleRate), ['context' => $context]);
 
                 return $transaction;
             }
 
-            $transaction->setSampled($sampleRand < $sampleRate);
+            $transaction->setSampled($this->sample($sampleRate));
         }
 
         if (!$transaction->getSampled()) {
-            $logger->info(\sprintf('Transaction [%s] was started but not sampled, decided by %s.', (string) $transaction->getTraceId(), $sampleSource), ['context' => $context]);
-
             return $transaction;
         }
 
-        $logger->info(\sprintf('Transaction [%s] was started and sampled, decided by %s.', (string) $transaction->getTraceId(), $sampleSource), ['context' => $context]);
-
         $transaction->initSpanRecorder();
 
-        $profilesSampleSource = 'config:profiles_sample_rate';
-        $profilesSampler = $options->getProfilesSampler();
-
-        if ($profilesSampler !== null) {
-            try {
-                $profilesSampleRate = $profilesSampler($samplingContext);
-                $profilesSampleSource = 'config:profiles_sampler';
-            } catch (\Throwable $exception) {
-                $options->getLoggerOrNullLogger()->error(\sprintf('The "profiles_sampler" callback failed with exception: "%s".', $exception->getMessage()));
-                $profilesSampleRate = $options->getProfilesSampleRate() ?? 0;
-                $profilesSampleSource = 'config:profiles_sampler_error_fallback';
+        $profilesSampleRate = $options->getProfilesSampleRate();
+        if ($this->sample($profilesSampleRate)) {
+            $transaction->initProfiler();
+            $profiler = $transaction->getProfiler();
+            if (null !== $profiler) {
+                $profiler->start();
             }
-        } else {
-            $profilesSampleRate = $options->getProfilesSampleRate();
-        }
-
-        if ($profilesSampleRate === null) {
-            $logger->info(\sprintf('Transaction [%s] is not profiling because neither `profiles_sample_rate` nor `profiles_sampler` option is set.', (string) $transaction->getTraceId()));
-        } elseif (!$this->isValidSampleRate($profilesSampleRate)) {
-            $logger->warning(\sprintf('Transaction [%s] is not profiling because profile sample rate (decided by %s) is invalid.', (string) $transaction->getTraceId(), $profilesSampleSource));
-        } elseif ($this->sample($profilesSampleRate)) {
-            $logger->info(\sprintf('Transaction [%s] started profiling because it was sampled.', (string) $transaction->getTraceId()));
-
-            $transaction->initProfiler()->start();
-        } else {
-            $logger->info(\sprintf('Transaction [%s] is not profiling because it was not sampled.', (string) $transaction->getTraceId()));
         }
 
         return $transaction;
@@ -429,12 +355,12 @@ class Hub implements HubInterface
 
     private function getSampleRate(?bool $hasParentBeenSampled, float $fallbackSampleRate): float
     {
-        if ($hasParentBeenSampled === true) {
-            return 1.0;
+        if (true === $hasParentBeenSampled) {
+            return 1;
         }
 
-        if ($hasParentBeenSampled === false) {
-            return 0.0;
+        if (false === $hasParentBeenSampled) {
+            return 0;
         }
 
         return $fallbackSampleRate;
@@ -445,11 +371,11 @@ class Hub implements HubInterface
      */
     private function sample($sampleRate): bool
     {
-        if ($sampleRate === 0.0 || $sampleRate === null) {
+        if (0.0 === $sampleRate) {
             return false;
         }
 
-        if ($sampleRate === 1.0) {
+        if (1.0 === $sampleRate) {
             return true;
         }
 

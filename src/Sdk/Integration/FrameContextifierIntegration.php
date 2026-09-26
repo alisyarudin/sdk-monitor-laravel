@@ -7,7 +7,6 @@ namespace Jasnita\Monitor\Sdk\Integration;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Jasnita\Monitor\Sdk\Event;
-use Jasnita\Monitor\Sdk\Frame;
 use Jasnita\Monitor\Sdk\JasnitaSdk;
 use Jasnita\Monitor\Sdk\Stacktrace;
 use Jasnita\Monitor\Sdk\State\Scope;
@@ -43,25 +42,25 @@ final class FrameContextifierIntegration implements IntegrationInterface
         Scope::addGlobalEventProcessor(static function (Event $event): Event {
             $client = JasnitaSdk::getCurrentHub()->getClient();
 
-            if ($client === null) {
+            if (null === $client) {
                 return $event;
             }
 
             $maxContextLines = $client->getOptions()->getContextLines();
             $integration = $client->getIntegration(self::class);
 
-            if ($integration === null || $maxContextLines === null) {
+            if (null === $integration || null === $maxContextLines) {
                 return $event;
             }
 
             $stacktrace = $event->getStacktrace();
 
-            if ($stacktrace !== null) {
+            if (null !== $stacktrace) {
                 $integration->addContextToStacktraceFrames($maxContextLines, $stacktrace);
             }
 
             foreach ($event->getExceptions() as $exception) {
-                if ($exception->getStacktrace() !== null) {
+                if (null !== $exception->getStacktrace()) {
                     $integration->addContextToStacktraceFrames($maxContextLines, $exception->getStacktrace());
                 }
             }
@@ -79,30 +78,16 @@ final class FrameContextifierIntegration implements IntegrationInterface
     private function addContextToStacktraceFrames(int $maxContextLines, Stacktrace $stacktrace): void
     {
         foreach ($stacktrace->getFrames() as $frame) {
-            if ($frame->isInternal()) {
+            if ($frame->isInternal() || null === $frame->getAbsoluteFilePath()) {
                 continue;
             }
 
-            $this->addContextToStacktraceFrame($maxContextLines, $frame);
+            $sourceCodeExcerpt = $this->getSourceCodeExcerpt($maxContextLines, $frame->getAbsoluteFilePath(), $frame->getLine());
+
+            $frame->setPreContext($sourceCodeExcerpt['pre_context']);
+            $frame->setContextLine($sourceCodeExcerpt['context_line']);
+            $frame->setPostContext($sourceCodeExcerpt['post_context']);
         }
-    }
-
-    /**
-     * Contextifies the given frame.
-     *
-     * @param int $maxContextLines The maximum number of lines of code to read
-     */
-    private function addContextToStacktraceFrame(int $maxContextLines, Frame $frame): void
-    {
-        if ($frame->getAbsoluteFilePath() === null) {
-            return;
-        }
-
-        $sourceCodeExcerpt = $this->getSourceCodeExcerpt($maxContextLines, $frame->getAbsoluteFilePath(), $frame->getLine());
-
-        $frame->setPreContext($sourceCodeExcerpt['pre_context']);
-        $frame->setContextLine($sourceCodeExcerpt['context_line']);
-        $frame->setPostContext($sourceCodeExcerpt['post_context']);
     }
 
     /**
@@ -114,7 +99,7 @@ final class FrameContextifierIntegration implements IntegrationInterface
      *
      * @return array<string, mixed>
      *
-     * @phpstan-return array{
+     * @psalm-return array{
      *     pre_context: string[],
      *     context_line: string|null,
      *     post_context: string[]
@@ -128,7 +113,7 @@ final class FrameContextifierIntegration implements IntegrationInterface
             'post_context' => [],
         ];
 
-        $target = max(0, $lineNumber - ($maxContextLines + 1));
+        $target = max(0, ($lineNumber - ($maxContextLines + 1)));
         $currentLineNumber = $target + 1;
 
         try {
@@ -157,10 +142,7 @@ final class FrameContextifierIntegration implements IntegrationInterface
                 $file->next();
             }
         } catch (\Throwable $exception) {
-            $this->logger->warning(
-                \sprintf('Failed to get the source code excerpt for the file "%s".', $filePath),
-                ['exception' => $exception]
-            );
+            $this->logger->warning(sprintf('Failed to get the source code excerpt for the file "%s".', $filePath));
         }
 
         return $frame;

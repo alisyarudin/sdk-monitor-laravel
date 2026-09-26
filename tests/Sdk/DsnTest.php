@@ -6,9 +6,12 @@ namespace Jasnita\Monitor\Sdk\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Jasnita\Monitor\Sdk\Dsn;
+use Symfony\Bridge\PhpUnit\ExpectDeprecationTrait;
 
 final class DsnTest extends TestCase
 {
+    use ExpectDeprecationTrait;
+
     /**
      * @dataProvider createFromStringDataProvider
      */
@@ -18,9 +21,9 @@ final class DsnTest extends TestCase
         string $expectedHost,
         int $expectedPort,
         string $expectedPublicKey,
+        ?string $expectedSecretKey,
         string $expectedProjectId,
-        string $expectedPath,
-        ?int $expectedOrgId
+        string $expectedPath
     ): void {
         $dsn = Dsn::createFromString($value);
 
@@ -28,9 +31,9 @@ final class DsnTest extends TestCase
         $this->assertSame($expectedHost, $dsn->getHost());
         $this->assertSame($expectedPort, $dsn->getPort());
         $this->assertSame($expectedPublicKey, $dsn->getPublicKey());
+        $this->assertSame($expectedSecretKey, $dsn->getSecretKey());
         $this->assertSame($expectedProjectId, $dsn->getProjectId(true));
         $this->assertSame($expectedPath, $dsn->getPath());
-        $this->assertSame($expectedOrgId, $dsn->getOrgId());
     }
 
     public static function createFromStringDataProvider(): \Generator
@@ -41,9 +44,9 @@ final class DsnTest extends TestCase
             'example.com',
             80,
             'public',
+            null,
             '1',
             '/jasnita',
-            null,
         ];
 
         yield [
@@ -52,20 +55,9 @@ final class DsnTest extends TestCase
             'example.com',
             80,
             'public',
-            '1',
-            '',
             null,
-        ];
-
-        yield [
-            'http://public@o1.example.com/1',
-            'http',
-            'o1.example.com',
-            80,
-            'public',
             '1',
             '',
-            1,
         ];
 
         yield [
@@ -74,9 +66,9 @@ final class DsnTest extends TestCase
             'example.com',
             80,
             'public',
+            'secret',
             '1',
             '',
-            null,
         ];
 
         yield [
@@ -85,9 +77,9 @@ final class DsnTest extends TestCase
             'example.com',
             80,
             'public',
+            null,
             '1',
             '',
-            null,
         ];
 
         yield [
@@ -96,9 +88,9 @@ final class DsnTest extends TestCase
             'example.com',
             8080,
             'public',
+            null,
             '1',
             '',
-            null,
         ];
 
         yield [
@@ -107,9 +99,9 @@ final class DsnTest extends TestCase
             'example.com',
             443,
             'public',
+            null,
             '1',
             '',
-            null,
         ];
 
         yield [
@@ -118,9 +110,9 @@ final class DsnTest extends TestCase
             'example.com',
             443,
             'public',
+            null,
             '1',
             '',
-            null,
         ];
 
         yield [
@@ -129,9 +121,9 @@ final class DsnTest extends TestCase
             'example.com',
             4343,
             'public',
+            null,
             '1',
             '',
-            null,
         ];
     }
 
@@ -163,6 +155,11 @@ final class DsnTest extends TestCase
             'The "http://:secret@example.com/jasnita/1" DSN must contain a scheme, a host, a user and a path component.',
         ];
 
+        yield 'missing secret key' => [
+            'http://public:@example.com/jasnita/1',
+            'The "http://public:@example.com/jasnita/1" DSN must contain a valid secret key.',
+        ];
+
         yield 'missing host' => [
             '/jasnita/1',
             'The "/jasnita/1" DSN must contain a scheme, a host, a user and a path component.',
@@ -177,6 +174,16 @@ final class DsnTest extends TestCase
             'tcp://public:secret@example.com/1',
             'The scheme of the "tcp://public:secret@example.com/1" DSN must be either "http" or "https".',
         ];
+    }
+
+    /**
+     * @dataProvider getStoreApiEndpointUrlDataProvider
+     */
+    public function testGetStoreApiEndpointUrl(string $value, string $expectedUrl): void
+    {
+        $dsn = Dsn::createFromString($value);
+
+        $this->assertSame($expectedUrl, $dsn->getStoreApiEndpointUrl());
     }
 
     public static function getStoreApiEndpointUrlDataProvider(): \Generator
@@ -246,44 +253,6 @@ final class DsnTest extends TestCase
     }
 
     /**
-     * @dataProvider getOtlpTracesEndpointUrlDataProvider
-     */
-    public function testGetOtlpTracesEndpointUrl(string $value, string $expectedUrl): void
-    {
-        $dsn = Dsn::createFromString($value);
-
-        $this->assertSame($expectedUrl, $dsn->getOtlpTracesEndpointUrl());
-    }
-
-    public static function getOtlpTracesEndpointUrlDataProvider(): \Generator
-    {
-        yield [
-            'http://public@example.com/jasnita/1',
-            'http://example.com/jasnita/api/1/integration/otlp/v1/traces/',
-        ];
-
-        yield [
-            'http://public@example.com/1',
-            'http://example.com/api/1/integration/otlp/v1/traces/',
-        ];
-
-        yield [
-            'http://public@example.com:8080/jasnita/1',
-            'http://example.com:8080/jasnita/api/1/integration/otlp/v1/traces/',
-        ];
-
-        yield [
-            'https://public@example.com/jasnita/1',
-            'https://example.com/jasnita/api/1/integration/otlp/v1/traces/',
-        ];
-
-        yield [
-            'https://public@example.com:4343/jasnita/1',
-            'https://example.com:4343/jasnita/api/1/integration/otlp/v1/traces/',
-        ];
-    }
-
-    /**
      * @dataProvider toStringDataProvider
      */
     public function testToString(string $value): void
@@ -295,11 +264,23 @@ final class DsnTest extends TestCase
     {
         return [
             ['http://public@example.com/jasnita/1'],
+            ['http://public:secret@example.com/jasnita/1'],
             ['http://public@example.com/1'],
-            ['http://public@o1.example.com/1'],
             ['http://public@example.com:8080/jasnita/1'],
             ['https://public@example.com/jasnita/1'],
             ['https://public@example.com:4343/jasnita/1'],
         ];
+    }
+
+    /**
+     * @group legacy
+     */
+    public function testGetProjectIdTriggersDeprecationErrorIfReturningInteger(): void
+    {
+        $dsn = Dsn::createFromString('https://public@example.com/jasnita/1');
+
+        $this->expectDeprecation('Calling the method Jasnita\\Monitor\\Sdk\\Dsn::getProjectId() and expecting it to return an integer is deprecated since version 3.4 and will stop working in 4.0.');
+
+        $this->assertSame(1, $dsn->getProjectId());
     }
 }

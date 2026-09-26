@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace Jasnita\Monitor\Sdk\Tests\Transport;
 
+use GuzzleHttp\Psr7\Response;
+use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Log\LoggerInterface;
+use Jasnita\Monitor\Sdk\Event;
 use Jasnita\Monitor\Sdk\EventType;
-use Jasnita\Monitor\Sdk\HttpClient\Response;
-use Jasnita\Monitor\Sdk\Tests\TestUtil\ClockMock;
+use Jasnita\Monitor\Sdk\ResponseStatus;
 use Jasnita\Monitor\Sdk\Transport\RateLimiter;
+use Symfony\Bridge\PhpUnit\ClockMock;
 
 /**
  * @group time-sensitive
@@ -16,72 +21,74 @@ use Jasnita\Monitor\Sdk\Transport\RateLimiter;
 final class RateLimiterTest extends TestCase
 {
     /**
+     * @var LoggerInterface&MockObject
+     */
+    private $logger;
+
+    /**
      * @var RateLimiter
      */
     private $rateLimiter;
 
     protected function setUp(): void
     {
-        $this->rateLimiter = new RateLimiter();
+        $this->logger = $this->createMock(LoggerInterface::class);
+        $this->rateLimiter = new RateLimiter($this->logger);
     }
 
     /**
      * @dataProvider handleResponseDataProvider
      */
-    public function testHandleResponse(Response $response, bool $shouldBeHandled, array $eventTypesLimited = []): void
+    public function testHandleResponse(Event $event, ResponseInterface $response, ResponseStatus $responseStatus): void
     {
         ClockMock::withClockMock(1644105600);
 
-        $this->rateLimiter->handleResponse($response);
-        $this->assertEventTypesAreRateLimited($eventTypesLimited);
+        $this->logger->expects($responseStatus === ResponseStatus::success() ? $this->never() : $this->once())
+            ->method('warning')
+            ->with('Rate limited exceeded for requests of type "event", backing off until "2022-02-06T00:01:00+00:00".', ['event' => $event]);
+
+        $transportResponse = $this->rateLimiter->handleResponse($event, $response);
+
+        $this->assertSame($responseStatus, $transportResponse->getStatus());
+        $this->assertSame($event, $transportResponse->getEvent());
     }
 
     public static function handleResponseDataProvider(): \Generator
     {
         yield 'Rate limits headers missing' => [
-            new Response(200, [], ''),
-            false,
+            Event::createEvent(),
+            new Response(),
+            ResponseStatus::success(),
         ];
 
         yield 'Back-off using X-Jasnita-Rate-Limits header with single category' => [
-            new Response(429, ['X-Jasnita-Rate-Limits' => ['60:error:org']], ''),
-            true,
-            [
-                EventType::event(),
-            ],
+            Event::createEvent(),
+            new Response(429, ['X-Jasnita-Rate-Limits' => '60:error:org']),
+            ResponseStatus::rateLimit(),
         ];
 
         yield 'Back-off using X-Jasnita-Rate-Limits header with multiple categories' => [
-            new Response(429, ['X-Jasnita-Rate-Limits' => ['60:error;transaction;metric_bucket:org']], ''),
-            true,
-            [
-                EventType::event(),
-                EventType::transaction(),
-            ],
+            Event::createEvent(),
+            new Response(429, ['X-Jasnita-Rate-Limits' => '60:error;transaction:org']),
+            ResponseStatus::rateLimit(),
         ];
 
         yield 'Back-off using X-Jasnita-Rate-Limits header with missing categories should lock them all' => [
-            new Response(429, ['X-Jasnita-Rate-Limits' => ['60::org']], ''),
-            true,
-            EventType::cases(),
-        ];
-
-        yield 'Do not back-off using X-Jasnita-Rate-Limits header with metric_bucket category, namespace foo' => [
-            new Response(429, ['X-Jasnita-Rate-Limits' => ['60:metric_bucket:organization:quota_exceeded:foo']], ''),
-            false,
-            [],
+            Event::createEvent(),
+            new Response(429, ['X-Jasnita-Rate-Limits' => '60::org']),
+            ResponseStatus::rateLimit(),
         ];
 
         yield 'Back-off using Retry-After header with number-based value' => [
-            new Response(429, ['Retry-After' => ['60']], ''),
-            true,
-            EventType::cases(),
+            Event::createEvent(),
+            new Response(429, ['Retry-After' => '60']),
+            ResponseStatus::rateLimit(),
         ];
 
         yield 'Back-off using Retry-After header with date-based value' => [
-            new Response(429, ['Retry-After' => ['Sun, 02 February 2022 00:01:00 GMT']], ''),
-            true,
-            EventType::cases(),
+            Event::createEvent(),
+            new Response(429, ['Retry-After' => 'Sun, 02 February 2022 00:01:00 GMT']),
+            ResponseStatus::rateLimit(),
         ];
     }
 
@@ -90,39 +97,34 @@ final class RateLimiterTest extends TestCase
         // Events should not be rate-limited at all
         ClockMock::withClockMock(1644105600);
 
-        $this->assertEventTypesAreRateLimited([]);
+        $this->assertFalse($this->rateLimiter->isRateLimited(EventType::event()));
+        $this->assertFalse($this->rateLimiter->isRateLimited(EventType::transaction()));
 
-        // Events should be rate-limited for 60 seconds, but transactions should still be allowed to be sent
-        $this->rateLimiter->handleResponse(new Response(429, ['X-Jasnita-Rate-Limits' => ['60:error:org']], ''));
+        // Events should be rate-limited for 60 seconds, but transactions should
+        // still be allowed to be sent
+        $this->rateLimiter->handleResponse(Event::createEvent(), new Response(429, ['X-Jasnita-Rate-Limits' => '60:error:org']));
 
-        $this->assertEventTypesAreRateLimited([EventType::event()]);
+        $this->assertTrue($this->rateLimiter->isRateLimited(EventType::event()));
+        $this->assertFalse($this->rateLimiter->isRateLimited(EventType::transaction()));
 
         // Events should not be rate-limited anymore once the deadline expired
         ClockMock::withClockMock(1644105660);
 
-        $this->assertEventTypesAreRateLimited([]);
+        $this->assertFalse($this->rateLimiter->isRateLimited(EventType::event()));
+        $this->assertFalse($this->rateLimiter->isRateLimited(EventType::transaction()));
 
-        // Both events and transactions should be rate-limited if all categories are
-        $this->rateLimiter->handleResponse(new Response(429, ['X-Jasnita-Rate-Limits' => ['60:all:org']], ''));
+        // Both events and transactions should be rate-limited if all categories
+        // are
+        $this->rateLimiter->handleResponse(Event::createTransaction(), new Response(429, ['X-Jasnita-Rate-Limits' => '60:all:org']));
 
-        $this->assertEventTypesAreRateLimited(EventType::cases());
+        $this->assertTrue($this->rateLimiter->isRateLimited(EventType::event()));
+        $this->assertTrue($this->rateLimiter->isRateLimited(EventType::transaction()));
 
-        // Both events and transactions should not be rate-limited anymore once the deadline expired
+        // Both events and transactions should not be rate-limited anymore once
+        // the deadline expired
         ClockMock::withClockMock(1644105720);
 
-        $this->assertEventTypesAreRateLimited([]);
-    }
-
-    private function assertEventTypesAreRateLimited(array $eventTypesLimited): void
-    {
-        foreach ($eventTypesLimited as $eventType) {
-            $this->assertTrue($this->rateLimiter->isRateLimited((string) $eventType));
-        }
-
-        $eventTypesNotLimited = array_diff(EventType::cases(), $eventTypesLimited);
-
-        foreach ($eventTypesNotLimited as $eventType) {
-            $this->assertFalse($this->rateLimiter->isRateLimited((string) $eventType));
-        }
+        $this->assertFalse($this->rateLimiter->isRateLimited(EventType::event()));
+        $this->assertFalse($this->rateLimiter->isRateLimited(EventType::transaction()));
     }
 }

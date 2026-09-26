@@ -5,17 +5,13 @@ declare(strict_types=1);
 namespace Jasnita\Monitor\Sdk\Tests\State;
 
 use PHPUnit\Framework\TestCase;
-use Jasnita\Monitor\Sdk\Attachment\Attachment;
 use Jasnita\Monitor\Sdk\Breadcrumb;
 use Jasnita\Monitor\Sdk\Event;
 use Jasnita\Monitor\Sdk\EventHint;
-use Jasnita\Monitor\Sdk\Options;
 use Jasnita\Monitor\Sdk\Severity;
 use Jasnita\Monitor\Sdk\State\Scope;
-use Jasnita\Monitor\Sdk\Tests\StubLogger;
 use Jasnita\Monitor\Sdk\Tracing\DynamicSamplingContext;
 use Jasnita\Monitor\Sdk\Tracing\PropagationContext;
-use Jasnita\Monitor\Sdk\Tracing\Span;
 use Jasnita\Monitor\Sdk\Tracing\SpanContext;
 use Jasnita\Monitor\Sdk\Tracing\SpanId;
 use Jasnita\Monitor\Sdk\Tracing\TraceId;
@@ -79,113 +75,6 @@ final class ScopeTest extends TestCase
 
         $this->assertNotNull($event);
         $this->assertSame(['bar' => 'baz'], $event->getTags());
-    }
-
-    public function testSetFlag(): void
-    {
-        $scope = new Scope();
-        $event = $scope->applyToEvent(Event::createEvent());
-
-        $this->assertNotNull($event);
-        $this->assertArrayNotHasKey('flags', $event->getContexts());
-
-        $scope->addFeatureFlag('foo', true);
-        $scope->addFeatureFlag('bar', false);
-
-        $event = $scope->applyToEvent(Event::createEvent());
-
-        $this->assertNotNull($event);
-        $this->assertArrayHasKey('flags', $event->getContexts());
-        $this->assertEquals([
-            'values' => [
-                [
-                    'flag' => 'foo',
-                    'result' => true,
-                ],
-                [
-                    'flag' => 'bar',
-                    'result' => false,
-                ],
-            ],
-        ], $event->getContexts()['flags']);
-    }
-
-    public function testSetFlagKeepsDuplicateFlagUpdatesSerializedAsList(): void
-    {
-        $scope = new Scope();
-
-        $scope->addFeatureFlag('feature-flag-1', true);
-        $scope->addFeatureFlag('feature-flag-2', false);
-        $scope->addFeatureFlag('feature-flag-1', false);
-
-        $event = $scope->applyToEvent(Event::createEvent());
-
-        $this->assertNotNull($event);
-        $this->assertArrayHasKey('flags', $event->getContexts());
-        $this->assertSame([
-            [
-                'flag' => 'feature-flag-2',
-                'result' => false,
-            ],
-            [
-                'flag' => 'feature-flag-1',
-                'result' => false,
-            ],
-        ], $event->getContexts()['flags']['values']);
-        $this->assertSame('[{"flag":"feature-flag-2","result":false},{"flag":"feature-flag-1","result":false}]', json_encode($event->getContexts()['flags']['values']));
-    }
-
-    public function testSetFlagLimit(): void
-    {
-        $scope = new Scope();
-        $event = $scope->applyToEvent(Event::createEvent());
-
-        $this->assertNotNull($event);
-        $this->assertArrayNotHasKey('flags', $event->getContexts());
-
-        $expectedFlags = [];
-
-        foreach (range(1, Scope::MAX_FLAGS) as $i) {
-            $scope->addFeatureFlag("feature{$i}", true);
-
-            $expectedFlags[] = [
-                'flag' => "feature{$i}",
-                'result' => true,
-            ];
-        }
-
-        $event = $scope->applyToEvent(Event::createEvent());
-
-        $this->assertNotNull($event);
-        $this->assertArrayHasKey('flags', $event->getContexts());
-        $this->assertEquals(['values' => $expectedFlags], $event->getContexts()['flags']);
-
-        array_shift($expectedFlags);
-
-        $scope->addFeatureFlag('should-not-be-discarded', true);
-
-        $expectedFlags[] = [
-            'flag' => 'should-not-be-discarded',
-            'result' => true,
-        ];
-
-        $event = $scope->applyToEvent(Event::createEvent());
-
-        $this->assertNotNull($event);
-        $this->assertArrayHasKey('flags', $event->getContexts());
-        $this->assertEquals(['values' => $expectedFlags], $event->getContexts()['flags']);
-    }
-
-    public function testSetFlagPropagatesToSpan(): void
-    {
-        $span = new Span();
-
-        $scope = new Scope();
-        $scope->setSpan($span);
-
-        $scope->addFeatureFlag('feature', true);
-
-        $this->assertSame(['flag.evaluation.feature' => true], $span->getData());
     }
 
     public function testSetAndRemoveContext(): void
@@ -433,7 +322,7 @@ final class ScopeTest extends TestCase
             return null;
         });
 
-        $scope->addEventProcessor(static function () use (&$callback3Called) {
+        $scope->addEventProcessor(function () use (&$callback3Called) {
             $callback3Called = true;
 
             return null;
@@ -442,24 +331,6 @@ final class ScopeTest extends TestCase
         $this->assertNull($scope->applyToEvent($event));
         $this->assertTrue($callback2Called);
         $this->assertFalse($callback3Called);
-    }
-
-    public function testEventProcessorExceptionDropsEventAndIsLogged(): void
-    {
-        StubLogger::$logs = [];
-        $scope = new Scope();
-        $scope->addEventProcessor(static function (): void {
-            throw new \RuntimeException('test');
-        });
-
-        $this->assertNull($scope->applyToEvent(Event::createEvent(), null, new Options([
-            'logger' => StubLogger::getInstance(),
-        ])));
-        $this->assertSame([[
-            'level' => 'error',
-            'message' => 'The event processor failed with exception: "test".',
-            'context' => [],
-        ]], StubLogger::$logs);
     }
 
     public function testEventProcessorReceivesTheEventAndEventHint(): void
@@ -471,7 +342,7 @@ final class ScopeTest extends TestCase
         $processorCalled = false;
         $processorReceivedHint = null;
 
-        $scope->addEventProcessor(static function (Event $eventArg, EventHint $hint) use (&$processorCalled, &$processorReceivedHint): ?Event {
+        $scope->addEventProcessor(function (Event $eventArg, EventHint $hint) use (&$processorCalled, &$processorReceivedHint): ?Event {
             $processorCalled = true;
             $processorReceivedHint = $hint;
 
@@ -493,7 +364,6 @@ final class ScopeTest extends TestCase
         $scope->setFingerprint(['foo']);
         $scope->setExtras(['foo' => 'bar']);
         $scope->setTags(['bar' => 'foo']);
-        $scope->addFeatureFlag('feature', true);
         $scope->setUser(UserDataBag::createFromUserIdentifier('unique_id'));
         $scope->clear();
 
@@ -506,7 +376,6 @@ final class ScopeTest extends TestCase
         $this->assertEmpty($event->getExtra());
         $this->assertEmpty($event->getTags());
         $this->assertEmpty($event->getUser());
-        $this->assertArrayNotHasKey('flags', $event->getContexts());
     }
 
     public function testApplyToEvent(): void
@@ -534,7 +403,6 @@ final class ScopeTest extends TestCase
         $scope->setUser($user);
         $scope->setContext('foocontext', ['foo' => 'bar']);
         $scope->setContext('barcontext', ['bar' => 'foo']);
-        $scope->addFeatureFlag('feature', true);
         $scope->setSpan($span);
 
         $this->assertSame($event, $scope->applyToEvent($event));
@@ -549,18 +417,9 @@ final class ScopeTest extends TestCase
                 'foo' => 'foo',
                 'bar' => 'bar',
             ],
-            'flags' => [
-                'values' => [
-                    [
-                        'flag' => 'feature',
-                        'result' => true,
-                    ],
-                ],
-            ],
             'trace' => [
                 'span_id' => '566e3688a61d4bc8',
                 'trace_id' => '566e3688a61d4bc888951642d6f14a19',
-                'origin' => 'manual',
                 'parent_span_id' => '8c2df92a922b4efe',
             ],
             'barcontext' => [
@@ -573,104 +432,5 @@ final class ScopeTest extends TestCase
         $this->assertInstanceOf(DynamicSamplingContext::class, $dynamicSamplingContext);
         $this->assertSame('foo', $dynamicSamplingContext->get('transaction'));
         $this->assertSame('566e3688a61d4bc888951642d6f14a19', $dynamicSamplingContext->get('trace_id'));
-    }
-
-    public function testGetTraceContextPrefersExternalPropagationContextOverPropagationContext(): void
-    {
-        $propagationContext = PropagationContext::fromDefaults();
-        $propagationContext->setTraceId(new TraceId('566e3688a61d4bc888951642d6f14a19'));
-        $propagationContext->setSpanId(new SpanId('566e3688a61d4bc8'));
-
-        Scope::registerExternalPropagationContext(static function (): array {
-            return [
-                'trace_id' => '771a43a4192642f0b136d5159a501700',
-                'span_id' => '1234567890abcdef',
-            ];
-        });
-
-        $scope = new Scope($propagationContext);
-
-        $this->assertSame([
-            'trace_id' => '771a43a4192642f0b136d5159a501700',
-            'span_id' => '1234567890abcdef',
-        ], $scope->getTraceContext());
-
-        Scope::clearExternalPropagationContext();
-    }
-
-    public function testGetTraceContextPrefersLocalSpanOverExternalPropagationContext(): void
-    {
-        Scope::registerExternalPropagationContext(static function (): array {
-            return [
-                'trace_id' => '771a43a4192642f0b136d5159a501700',
-                'span_id' => '1234567890abcdef',
-            ];
-        });
-
-        $transaction = new Transaction(new TransactionContext('foo'));
-        $transaction->setSpanId(new SpanId('8c2df92a922b4efe'));
-        $transaction->setTraceId(new TraceId('566e3688a61d4bc888951642d6f14a19'));
-        $span = $transaction->startChild(new SpanContext());
-        $span->setSpanId(new SpanId('566e3688a61d4bc8'));
-
-        $scope = new Scope();
-        $scope->setSpan($span);
-
-        $this->assertSame([
-            'span_id' => '566e3688a61d4bc8',
-            'trace_id' => '566e3688a61d4bc888951642d6f14a19',
-            'origin' => 'manual',
-            'parent_span_id' => '8c2df92a922b4efe',
-        ], $scope->getTraceContext());
-
-        Scope::clearExternalPropagationContext();
-    }
-
-    public function testApplyToEventSkipsDynamicSamplingContextWhenUsingExternalPropagationContext(): void
-    {
-        Scope::registerExternalPropagationContext(static function (): array {
-            return [
-                'trace_id' => '771a43a4192642f0b136d5159a501700',
-                'span_id' => '1234567890abcdef',
-            ];
-        });
-
-        $scope = new Scope();
-        $event = $scope->applyToEvent(Event::createEvent(), null, new Options([
-            'dsn' => 'http://public@example.com/1',
-            'release' => '1.0.0',
-            'environment' => 'test',
-            'traces_sample_rate' => 1.0,
-        ]));
-
-        $this->assertNotNull($event);
-        $this->assertSame([
-            'trace' => [
-                'trace_id' => '771a43a4192642f0b136d5159a501700',
-                'span_id' => '1234567890abcdef',
-            ],
-        ], $event->getContexts());
-        $this->assertNull($event->getSdkMetadata('dynamic_sampling_context'));
-
-        Scope::clearExternalPropagationContext();
-    }
-
-    /**
-     * @dataProvider eventWithLogCountProvider
-     */
-    public function testAttachmentsAppliedForType(Event $event, int $attachmentCount): void
-    {
-        $scope = new Scope();
-        $scope->addAttachment(Attachment::fromBytes('test', 'abcde'));
-        $scope->applyToEvent($event);
-        $this->assertCount($attachmentCount, $event->getAttachments());
-    }
-
-    public function eventWithLogCountProvider(): \Generator
-    {
-        yield 'event' => [Event::createEvent(), 1];
-        yield 'transaction' => [Event::createTransaction(), 1];
-        yield 'check-in' => [Event::createCheckIn(), 0];
-        yield 'logs' => [Event::createLogs(), 0];
     }
 }

@@ -4,6 +4,7 @@ namespace Jasnita\Monitor\Laravel\Tracing;
 
 use Illuminate\Contracts\View\Engine;
 use Illuminate\View\Factory;
+use Jasnita\Monitor\Laravel\Integration;
 use Jasnita\Monitor\Sdk\JasnitaSdk;
 use Jasnita\Monitor\Sdk\Tracing\SpanContext;
 
@@ -28,19 +29,17 @@ final class ViewEngineDecorator implements Engine
      */
     public function get($path, array $data = []): string
     {
-        $parentSpan = JasnitaSdk::getCurrentHub()->getSpan();
+        $parentSpan = Integration::currentTracingSpan();
 
-        // If there is no sampled span there is no need to wrap the engine call
-        if ($parentSpan === null || !$parentSpan->getSampled()) {
+        if ($parentSpan === null) {
             return $this->engine->get($path, $data);
         }
 
-        $span = $parentSpan->startChild(
-            SpanContext::make()
-                ->setOp('view.render')
-                ->setOrigin('auto.view')
-                ->setDescription($this->viewFactory->shared(self::SHARED_KEY, basename($path)))
-        );
+        $context = new SpanContext();
+        $context->setOp('view.render');
+        $context->setDescription($this->viewFactory->shared(self::SHARED_KEY, basename($path)));
+
+        $span = $parentSpan->startChild($context);
 
         JasnitaSdk::getCurrentHub()->setSpan($span);
 
@@ -55,6 +54,6 @@ final class ViewEngineDecorator implements Engine
 
     public function __call($name, $arguments)
     {
-        return $this->engine->{$name}(...$arguments);
+        return call_user_func_array([$this->engine, $name], $arguments);
     }
 }

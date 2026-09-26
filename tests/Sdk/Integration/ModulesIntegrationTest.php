@@ -11,7 +11,6 @@ use Jasnita\Monitor\Sdk\Event;
 use Jasnita\Monitor\Sdk\Integration\ModulesIntegration;
 use Jasnita\Monitor\Sdk\JasnitaSdk;
 use Jasnita\Monitor\Sdk\State\Scope;
-
 use function Jasnita\Monitor\Sdk\withScope;
 
 final class ModulesIntegrationTest extends TestCase

@@ -2,14 +2,17 @@
 
 declare(strict_types=1);
 
+use Http\Discovery\ClassDiscovery;
+use Http\Discovery\Strategy\MockClientStrategy;
 use Jasnita\Monitor\Sdk\Breadcrumb;
 use Jasnita\Monitor\Sdk\Event;
-use Jasnita\Monitor\Sdk\Metrics\Metrics;
-use Jasnita\Monitor\Sdk\Tests\TestUtil\ClockMock;
 use Jasnita\Monitor\Sdk\Tracing\Span;
 use Jasnita\Monitor\Sdk\Transport\RateLimiter;
+use Symfony\Bridge\PhpUnit\ClockMock;
 
 require_once __DIR__ . '/../../vendor/autoload.php';
+
+ClassDiscovery::appendStrategy(MockClientStrategy::class);
 
 // According to the Symfony documentation the proper way to register the mocked
 // functions for a certain class would be to configure the listener in the
@@ -26,5 +29,3 @@ ClockMock::register(Event::class);
 ClockMock::register(Breadcrumb::class);
 ClockMock::register(Span::class);
 ClockMock::register(RateLimiter::class);
-ClockMock::register(Metrics::class);
-ClockMock::register(Jasnita\Monitor\Sdk\Serializer\PayloadSerializer::class);

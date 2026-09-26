@@ -2,21 +2,17 @@
 
 namespace Jasnita\Monitor\Laravel\Tracing;
 
-use Illuminate\Contracts\Container\BindingResolutionException;
-use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Http\Kernel as HttpKernelInterface;
 use Illuminate\Contracts\View\Engine;
 use Illuminate\Contracts\View\View;
 use Illuminate\Foundation\Http\Kernel as HttpKernel;
-use Illuminate\Routing\Contracts\CallableDispatcher;
-use Illuminate\Routing\Contracts\ControllerDispatcher;
+use Illuminate\Queue\QueueManager;
 use Illuminate\View\Engines\EngineResolver;
 use Illuminate\View\Factory as ViewFactory;
 use InvalidArgumentException;
 use Laravel\Lumen\Application as Lumen;
 use Jasnita\Monitor\Laravel\BaseServiceProvider;
-use Jasnita\Monitor\Laravel\Tracing\Routing\TracingCallableDispatcherTracing;
-use Jasnita\Monitor\Laravel\Tracing\Routing\TracingControllerDispatcherTracing;
+use Jasnita\Monitor\Sdk\Serializer\RepresentationSerializer;
 
 class ServiceProvider extends BaseServiceProvider
 {
@@ -26,65 +22,60 @@ class ServiceProvider extends BaseServiceProvider
 
     public function boot(): void
     {
-        // Only register if a DSN is set or Spotlight is enabled
-        // No events can be sent without a DSN set or Spotlight enabled
-        if (!$this->hasDsnSet() && !$this->hasSpotlightEnabled()) {
-            return;
-        }
+        if ($this->hasDsnSet() && $this->couldHavePerformanceTracingEnabled()) {
+            $tracingConfig = $this->getUserConfig()['tracing'] ?? [];
 
-        if (!$this->app instanceof Lumen) {
-            $this->app->booted(function () {
-                $this->app->make(Middleware::class)->setBootedTimestamp();
-            });
-        }
+            $this->bindEvents($tracingConfig);
 
-        $tracingConfig = $this->getTracingConfig();
+            $this->bindViewEngine($tracingConfig);
 
-        $this->bindEvents($tracingConfig);
+            if ($this->app instanceof Lumen) {
+                $this->app->middleware(Middleware::class);
+            } elseif ($this->app->bound(HttpKernelInterface::class)) {
+                /** @var \Illuminate\Foundation\Http\Kernel $httpKernel */
+                $httpKernel = $this->app->make(HttpKernelInterface::class);
 
-        $this->bindViewEngine($tracingConfig);
-
-        $this->decorateRoutingDispatchers();
-
-        if ($this->app instanceof Lumen) {
-            $this->app->middleware(Middleware::class);
-        } elseif ($this->app->bound(HttpKernelInterface::class)) {
-            $httpKernel = $this->app->make(HttpKernelInterface::class);
-
-            if ($httpKernel instanceof HttpKernel) {
-                $httpKernel->prependMiddleware(Middleware::class);
+                if ($httpKernel instanceof HttpKernel) {
+                    $httpKernel->prependMiddleware(Middleware::class);
+                }
             }
         }
     }
 
     public function register(): void
     {
-        $this->app->singleton(TransactionFinisher::class);
+        $this->app->singleton(Middleware::class);
 
-        $this->app->singleton(Middleware::class, function () {
-            $continueAfterResponse = ($this->getTracingConfig()['continue_after_response'] ?? true) === true;
+        $this->app->singleton(BacktraceHelper::class, function () {
+            /** @var \Jasnita\Monitor\Sdk\State\Hub $jasnita */
+            $jasnita = $this->app->make(self::$abstract);
 
-            // Lumen introduced the `terminating` method in version 9.1.4.
-            // We check for it's existence and disable the continue after response feature if it's not available.
-            if (!method_exists($this->app, 'terminating')) {
-                $continueAfterResponse = false;
-            }
+            $options = $jasnita->getClient()->getOptions();
 
-            return new Middleware($continueAfterResponse);
+            return new BacktraceHelper($options, new RepresentationSerializer($options));
         });
+
+        if (!$this->app instanceof Lumen) {
+            $this->app->booted(function () {
+                $this->app->make(Middleware::class)->setBootedTimestamp();
+            });
+        }
     }
 
     private function bindEvents(array $tracingConfig): void
     {
-        $handler = new EventHandler($tracingConfig);
+        $handler = new EventHandler(
+            $this->app,
+            $this->app->make(BacktraceHelper::class),
+            $tracingConfig
+        );
 
-        try {
-            /** @var \Illuminate\Contracts\Events\Dispatcher $dispatcher */
-            $dispatcher = $this->app->make(Dispatcher::class);
+        $handler->subscribe();
 
-            $handler->subscribe($dispatcher);
-        } catch (BindingResolutionException $e) {
-            // If we cannot resolve the event dispatcher we also cannot listen to events
+        if ($this->app->bound('queue')) {
+            $handler->subscribeQueueEvents(
+                $this->app->make('queue')
+            );
         }
     }
 
@@ -98,11 +89,6 @@ class ServiceProvider extends BaseServiceProvider
             foreach (['file', 'php', 'blade'] as $engineName) {
                 try {
                     $realEngine = $engineResolver->resolve($engineName);
-
-                    // Prevent double wrapping the view engine, this causes issues in Laravel internals where it's unable to collect the data it needs
-                    if ($realEngine instanceof ViewEngineDecorator) {
-                        continue;
-                    }
 
                     $engineResolver->register($engineName, function () use ($realEngine) {
                         return $this->wrapViewEngine($realEngine);
@@ -132,21 +118,5 @@ class ServiceProvider extends BaseServiceProvider
         });
 
         return new ViewEngineDecorator($realEngine, $viewFactory);
-    }
-
-    private function getTracingConfig(): array
-    {
-        return $this->getUserConfig()['tracing'] ?? [];
-    }
-
-    private function decorateRoutingDispatchers(): void
-    {
-        $this->app->extend(CallableDispatcher::class, static function (CallableDispatcher $dispatcher) {
-            return new TracingCallableDispatcherTracing($dispatcher);
-        });
-
-        $this->app->extend(ControllerDispatcher::class, static function (ControllerDispatcher $dispatcher) {
-            return new TracingControllerDispatcherTracing($dispatcher);
-        });
     }
 }

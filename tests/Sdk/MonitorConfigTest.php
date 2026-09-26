@@ -17,17 +17,13 @@ final class MonitorConfigTest extends TestCase
             MonitorSchedule::crontab('* * * * *'),
             10,
             12,
-            'Europe/Amsterdam',
-            5,
-            10
+            'Europe/Amsterdam'
         );
 
         $this->assertEquals($monitorSchedule, $monitorConfig->getSchedule());
         $this->assertEquals(10, $monitorConfig->getCheckinMargin());
         $this->assertEquals(12, $monitorConfig->getMaxRuntime());
         $this->assertEquals('Europe/Amsterdam', $monitorConfig->getTimezone());
-        $this->assertEquals(5, $monitorConfig->getFailureRecoveryThreshold());
-        $this->assertEquals(10, $monitorConfig->getRecoveryThreshold());
     }
 
     /**
@@ -50,8 +46,6 @@ final class MonitorConfigTest extends TestCase
             ['getCheckinMargin', 'setCheckinMargin', 10],
             ['getMaxRuntime', 'setMaxRuntime', 12],
             ['getTimezone', 'setTimezone', 'Europe/Amsterdam'],
-            ['getFailureRecoveryThreshold', 'setFailureRecoveryThreshold', 5],
-            ['getRecoveryThreshold', 'setRecoveryThreshold', 10],
         ];
     }
 }

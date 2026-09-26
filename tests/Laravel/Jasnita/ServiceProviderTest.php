@@ -2,45 +2,43 @@
 
 namespace Jasnita\Monitor\Laravel\Tests;
 
-use Illuminate\Support\Facades\Artisan;
-use Orchestra\Testbench\TestCase;
 use Jasnita\Monitor\Laravel\Facade;
 use Jasnita\Monitor\Laravel\ServiceProvider;
 use Jasnita\Monitor\Sdk\State\HubInterface;
 
-class ServiceProviderTest extends TestCase
+class ServiceProviderTest extends \Orchestra\Testbench\TestCase
 {
-    protected function defineEnvironment($app): void
+    protected function getEnvironmentSetUp($app)
     {
-        $app['config']->set('jasnita.dsn', 'https://publickey@jasnita.dev/123');
+        $app['config']->set('jasnita.dsn', 'http://publickey:secretkey@jasnita.dev/123');
         $app['config']->set('jasnita.error_types', E_ALL ^ E_DEPRECATED ^ E_USER_DEPRECATED);
     }
 
-    protected function getPackageProviders($app): array
+    protected function getPackageProviders($app)
     {
         return [
             ServiceProvider::class,
         ];
     }
 
-    protected function getPackageAliases($app): array
+    protected function getPackageAliases($app)
     {
         return [
             'Jasnita' => Facade::class,
         ];
     }
 
-    public function testIsBound(): void
+    public function testIsBound()
     {
         $this->assertTrue(app()->bound('jasnita'));
-        $this->assertSame(app('jasnita'), Facade::getFacadeRoot());
         $this->assertInstanceOf(HubInterface::class, app('jasnita'));
+        $this->assertSame(app('jasnita'), Facade::getFacadeRoot());
     }
 
     /**
      * @depends testIsBound
      */
-    public function testEnvironment(): void
+    public function testEnvironment()
     {
         $this->assertEquals('testing', app('jasnita')->getClient()->getOptions()->getEnvironment());
     }
@@ -48,33 +46,25 @@ class ServiceProviderTest extends TestCase
     /**
      * @depends testIsBound
      */
-    public function testDsnWasSetFromConfig(): void
+    public function testDsnWasSetFromConfig()
     {
         /** @var \Jasnita\Monitor\Sdk\Options $options */
         $options = app('jasnita')->getClient()->getOptions();
 
-        $this->assertEquals('https://jasnita.dev', $options->getDsn()->getScheme() . '://' . $options->getDsn()->getHost());
+        $this->assertEquals('http://jasnita.dev', $options->getDsn()->getScheme() . '://' . $options->getDsn()->getHost());
         $this->assertEquals(123, $options->getDsn()->getProjectId());
         $this->assertEquals('publickey', $options->getDsn()->getPublicKey());
+        $this->assertEquals('secretkey', $options->getDsn()->getSecretKey());
     }
 
     /**
      * @depends testIsBound
      */
-    public function testErrorTypesWasSetFromConfig(): void
+    public function testErrorTypesWasSetFromConfig()
     {
         $this->assertEquals(
             E_ALL ^ E_DEPRECATED ^ E_USER_DEPRECATED,
             app('jasnita')->getClient()->getOptions()->getErrorTypes()
         );
-    }
-
-    /**
-     * @depends testIsBound
-     */
-    public function testArtisanCommandsAreRegistered(): void
-    {
-        $this->assertArrayHasKey('jasnita:test', Artisan::all());
-        $this->assertArrayHasKey('jasnita:publish', Artisan::all());
     }
 }

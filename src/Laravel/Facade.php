@@ -16,7 +16,7 @@ use Jasnita\Monitor\Sdk\State\HubInterface;
  * @method static void bindClient(\Jasnita\Monitor\Sdk\ClientInterface $client)
  * @method static \Jasnita\Monitor\Sdk\EventId|null captureMessage(string $message, \Jasnita\Monitor\Sdk\Severity|null $level = null, \Jasnita\Monitor\Sdk\EventHint|null $hint = null)
  * @method static \Jasnita\Monitor\Sdk\EventId|null captureException(\Throwable $exception, \Jasnita\Monitor\Sdk\EventHint|null $hint = null)
- * @method static \Jasnita\Monitor\Sdk\EventId|null captureEvent(\Jasnita\Monitor\Sdk\Event $event, \Jasnita\Monitor\Sdk\EventHint|null $hint = null)
+ * @method static \Jasnita\Monitor\Sdk\EventId|null captureEvent(\Throwable $exception, \Jasnita\Monitor\Sdk\EventHint|null $hint = null)
  * @method static \Jasnita\Monitor\Sdk\EventId|null captureLastError(\Jasnita\Monitor\Sdk\EventHint|null $hint = null)
  * @method static bool addBreadcrumb(\Jasnita\Monitor\Sdk\Breadcrumb $breadcrumb)
  * @method static \Jasnita\Monitor\Sdk\Integration\IntegrationInterface|null getIntegration(string $className)

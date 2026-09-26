@@ -83,10 +83,8 @@ final class ExceptionMechanism
      *
      * @param array<string, mixed> $data
      */
-    public function setData(array $data): self
+    public function setData(array $data): void
     {
         $this->data = $data;
-
-        return $this;
     }
 }

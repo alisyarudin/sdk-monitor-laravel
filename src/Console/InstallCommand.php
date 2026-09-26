@@ -89,7 +89,8 @@ class InstallCommand extends Command
                 continue;
             }
             $src = (string) file_get_contents($file);
-            if (strpos($src, 'Integration::handles') !== false || strpos($src, 'captureUnhandledException') !== false) {
+            if (strpos($src, 'Integration::handles') !== false || strpos($src, 'captureUnhandledException') !== false
+                || strpos($src, "app('jasnita')") !== false || strpos($src, 'Monitor::captureException') !== false) {
                 $this->warn('Ditemukan pelapor exception manual di ' . str_replace($this->laravel->basePath() . '/', '', $file) . '.');
                 $this->warn('Hapus baris itu, ATAU set JASNITA_MONITOR_AUTO_REPORT=false — jangan keduanya aktif.');
             }

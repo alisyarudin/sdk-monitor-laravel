@@ -15,6 +15,7 @@ use Jasnita\Monitor\Sdk\Tracing\TraceId;
 use Jasnita\Monitor\Sdk\Tracing\Transaction;
 use Jasnita\Monitor\Sdk\Tracing\TransactionContext;
 use Jasnita\Monitor\Sdk\Tracing\TransactionSource;
+use Jasnita\Monitor\Sdk\UserDataBag;
 
 final class DynamicSamplingContextTest extends TestCase
 {
@@ -28,8 +29,8 @@ final class DynamicSamplingContextTest extends TestCase
         ?string $expectedSampleRate,
         ?string $expectedRelease,
         ?string $expectedEnvironment,
-        ?string $expectedTransaction,
-        ?string $expectedSampleRand
+        ?string $expectedUserSegment,
+        ?string $expectedTransaction
     ): void {
         $samplingContext = DynamicSamplingContext::fromHeader($header);
 
@@ -38,15 +39,14 @@ final class DynamicSamplingContextTest extends TestCase
         $this->assertSame($expectedSampleRate, $samplingContext->get('sample_rate'));
         $this->assertSame($expectedRelease, $samplingContext->get('release'));
         $this->assertSame($expectedEnvironment, $samplingContext->get('environment'));
+        $this->assertSame($expectedUserSegment, $samplingContext->get('user_segment'));
         $this->assertSame($expectedTransaction, $samplingContext->get('transaction'));
-        $this->assertSame($expectedSampleRand, $samplingContext->get('sample_rand'));
     }
 
     public static function fromHeaderDataProvider(): \Generator
     {
         yield [
             '',
-            null,
             null,
             null,
             null,
@@ -68,14 +68,14 @@ final class DynamicSamplingContextTest extends TestCase
         ];
 
         yield [
-            'jasnita-trace_id=d49d9bf66f13450b81f65bc51cf49c03,jasnita-public_key=public,jasnita-sample_rate=1,jasnita-release=1.0.0,jasnita-environment=test,jasnita-user_segment=my_segment,jasnita-transaction=<unlabeled transaction>,jasnita-sample_rand=0.5',
+            'jasnita-trace_id=d49d9bf66f13450b81f65bc51cf49c03,jasnita-public_key=public,jasnita-sample_rate=1,jasnita-release=1.0.0,jasnita-environment=test,jasnita-user_segment=my_segment,jasnita-transaction=<unlabeled transaction>',
             'd49d9bf66f13450b81f65bc51cf49c03',
             'public',
             '1',
             '1.0.0',
             'test',
+            'my_segment',
             '<unlabeled transaction>',
-            '0.5',
         ];
     }
 
@@ -90,14 +90,19 @@ final class DynamicSamplingContextTest extends TestCase
                 'environment' => 'test',
             ]));
 
-        $hub = new Hub($client);
+        $user = new UserDataBag();
+        $user->setSegment('my_segment');
+
+        $scope = new Scope();
+        $scope->setUser($user);
+
+        $hub = new Hub($client, $scope);
 
         $transactionContext = new TransactionContext();
         $transactionContext->setName('foo');
 
         $transaction = new Transaction($transactionContext, $hub);
         $transaction->getMetadata()->setSamplingRate(1.0);
-        $transaction->getMetadata()->setSampleRand(0.5);
 
         $samplingContext = DynamicSamplingContext::fromTransaction($transaction, $hub);
 
@@ -107,7 +112,7 @@ final class DynamicSamplingContextTest extends TestCase
         $this->assertSame('public', $samplingContext->get('public_key'));
         $this->assertSame('1.0.0', $samplingContext->get('release'));
         $this->assertSame('test', $samplingContext->get('environment'));
-        $this->assertSame('0.5', $samplingContext->get('sample_rand'));
+        $this->assertSame('my_segment', $samplingContext->get('user_segment'));
         $this->assertTrue($samplingContext->isFrozen());
     }
 
@@ -137,9 +142,12 @@ final class DynamicSamplingContextTest extends TestCase
 
         $propagationContext = PropagationContext::fromDefaults();
         $propagationContext->setTraceId(new TraceId('21160e9b836d479f81611368b2aa3d2c'));
-        $propagationContext->setSampleRand(0.5);
+
+        $user = new UserDataBag();
+        $user->setSegment('my_segment');
 
         $scope = new Scope();
+        $scope->setUser($user);
         $scope->setPropagationContext($propagationContext);
 
         $samplingContext = DynamicSamplingContext::fromOptions($options, $scope);
@@ -149,66 +157,8 @@ final class DynamicSamplingContextTest extends TestCase
         $this->assertSame('public', $samplingContext->get('public_key'));
         $this->assertSame('1.0.0', $samplingContext->get('release'));
         $this->assertSame('test', $samplingContext->get('environment'));
-        $this->assertSame('0.5', $samplingContext->get('sample_rand'));
+        $this->assertSame('my_segment', $samplingContext->get('user_segment'));
         $this->assertTrue($samplingContext->isFrozen());
-    }
-
-    public function testFromOptionsUsesConfiguredOrgIdOverDsnOrgId(): void
-    {
-        $options = new Options([
-            'dsn' => 'http://public@o1.example.com/1',
-            'org_id' => 2,
-        ]);
-
-        $scope = new Scope();
-        $samplingContext = DynamicSamplingContext::fromOptions($options, $scope);
-
-        $this->assertSame('2', $samplingContext->get('org_id'));
-    }
-
-    public function testFromOptionsFallsBackToDsnOrgId(): void
-    {
-        $options = new Options([
-            'dsn' => 'http://public@o1.example.com/1',
-        ]);
-
-        $scope = new Scope();
-        $samplingContext = DynamicSamplingContext::fromOptions($options, $scope);
-
-        $this->assertSame('1', $samplingContext->get('org_id'));
-    }
-
-    public function testFromTransactionUsesConfiguredOrgIdOverDsnOrgId(): void
-    {
-        $client = $this->createMock(ClientInterface::class);
-        $client->expects($this->once())
-            ->method('getOptions')
-            ->willReturn(new Options([
-                'dsn' => 'http://public@o1.example.com/1',
-                'org_id' => 2,
-            ]));
-
-        $hub = new Hub($client);
-        $transaction = new Transaction(new TransactionContext(), $hub);
-        $samplingContext = DynamicSamplingContext::fromTransaction($transaction, $hub);
-
-        $this->assertSame('2', $samplingContext->get('org_id'));
-    }
-
-    public function testFromTransactionFallsBackToDsnOrgId(): void
-    {
-        $client = $this->createMock(ClientInterface::class);
-        $client->expects($this->once())
-            ->method('getOptions')
-            ->willReturn(new Options([
-                'dsn' => 'http://public@o1.example.com/1',
-            ]));
-
-        $hub = new Hub($client);
-        $transaction = new Transaction(new TransactionContext(), $hub);
-        $samplingContext = DynamicSamplingContext::fromTransaction($transaction, $hub);
-
-        $this->assertSame('1', $samplingContext->get('org_id'));
     }
 
     /**

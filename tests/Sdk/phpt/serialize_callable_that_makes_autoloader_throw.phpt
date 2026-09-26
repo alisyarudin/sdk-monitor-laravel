@@ -20,8 +20,6 @@ while (!file_exists($vendor . '/vendor')) {
 
 require $vendor . '/vendor/autoload.php';
 
-error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
-
 function testSerialization(int $depth = 3) {
     $serializer = new Serializer(new Options(), $depth);
 

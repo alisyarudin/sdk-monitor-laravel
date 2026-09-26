@@ -54,68 +54,6 @@ abstract class AbstractSerializerTest extends TestCase
         $this->assertSame('Object Jasnita\Monitor\Sdk\Tests\Serializer\SerializerTestObject', $result);
     }
 
-    /**
-     * @requires PHP >= 8.1
-     */
-    public function testEnumsAreNames(): void
-    {
-        $serializer = $this->createSerializer();
-        $input = SerializerTestEnum::CASE_NAME;
-        $result = $this->invokeSerialization($serializer, $input);
-
-        $this->assertSame('Enum Jasnita\Monitor\Sdk\Tests\Serializer\SerializerTestEnum::CASE_NAME', $result);
-    }
-
-    /**
-     * @requires PHP >= 8.1
-     */
-    public function testBackedEnumsIncludeValue(): void
-    {
-        $serializer = $this->createSerializer();
-        $input = SerializerTestBackedEnum::CASE_NAME;
-        $result = $this->invokeSerialization($serializer, $input);
-
-        $this->assertSame('Enum Jasnita\Monitor\Sdk\Tests\Serializer\SerializerTestBackedEnum::CASE_NAME(case_value)', $result);
-    }
-
-    /**
-     * @requires PHP >= 8.1
-     *
-     * @dataProvider serializeAllObjectsDataProvider
-     */
-    public function testEnumsAreNotSerializedAsObjects(bool $serializeAllObjects): void
-    {
-        $serializer = $this->createSerializer();
-
-        if ($serializeAllObjects) {
-            $serializer->setSerializeAllObjects(true);
-        }
-
-        $input = SerializerTestEnum::CASE_NAME;
-        $result = $this->invokeSerialization($serializer, $input);
-
-        $this->assertSame('Enum Jasnita\Monitor\Sdk\Tests\Serializer\SerializerTestEnum::CASE_NAME', $result);
-    }
-
-    /**
-     * @requires PHP >= 8.1
-     *
-     * @dataProvider serializeAllObjectsDataProvider
-     */
-    public function testBackedEnumsAreNotSerializedAsObjects(bool $serializeAllObjects): void
-    {
-        $serializer = $this->createSerializer();
-
-        if ($serializeAllObjects) {
-            $serializer->setSerializeAllObjects(true);
-        }
-
-        $input = SerializerTestBackedEnum::CASE_NAME;
-        $result = $this->invokeSerialization($serializer, $input);
-
-        $this->assertSame('Enum Jasnita\Monitor\Sdk\Tests\Serializer\SerializerTestBackedEnum::CASE_NAME(case_value)', $result);
-    }
-
     public static function objectsWithIdPropertyDataProvider(): array
     {
         return [
@@ -504,64 +442,48 @@ abstract class AbstractSerializerTest extends TestCase
         $this->assertFileExists($filename);
         $callableWithoutNamespaces = require $filename;
 
-        $prettyClosureNames = \PHP_VERSION_ID >= 80400;
-
         return [
             [
-                'callable' => static function (array $param1) {
+                'callable' => function (array $param1) {
                     throw new \Exception('Don\'t even think about invoke me');
                 },
-                'expected' => $prettyClosureNames
-                    ? 'Lambda {closure:' . __CLASS__ . '::' . __FUNCTION__ . '():%d} [array param1]'
-                    : 'Lambda ' . __NAMESPACE__ . '\\{closure} [array param1]',
+                'expected' => 'Lambda ' . __NAMESPACE__ . '\\{closure} [array param1]',
             ],
             [
-                'callable' => static function ($param1a) {
+                'callable' => function ($param1a) {
                     throw new \Exception('Don\'t even think about invoke me');
                 },
-                'expected' => $prettyClosureNames
-                    ? 'Lambda {closure:' . __CLASS__ . '::' . __FUNCTION__ . '():%d} [mixed|null param1a]'
-                    : 'Lambda ' . __NAMESPACE__ . '\\{closure} [mixed|null param1a]',
+                'expected' => 'Lambda ' . __NAMESPACE__ . '\\{closure} [mixed|null param1a]',
             ],
             [
-                'callable' => static function (callable $param1c) {
+                'callable' => function (callable $param1c) {
                     throw new \Exception('Don\'t even think about invoke me');
                 },
-                'expected' => $prettyClosureNames
-                    ? 'Lambda {closure:' . __CLASS__ . '::' . __FUNCTION__ . '():%d} [callable param1c]'
-                    : 'Lambda ' . __NAMESPACE__ . '\\{closure} [callable param1c]',
+                'expected' => 'Lambda ' . __NAMESPACE__ . '\\{closure} [callable param1c]',
             ],
             [
-                'callable' => static function (\stdClass $param1d) {
+                'callable' => function (\stdClass $param1d) {
                     throw new \Exception('Don\'t even think about invoke me');
                 },
-                'expected' => $prettyClosureNames
-                    ? 'Lambda {closure:' . __CLASS__ . '::' . __FUNCTION__ . '():%d} [stdClass param1d]'
-                    : 'Lambda ' . __NAMESPACE__ . '\\{closure} [stdClass param1d]',
+                'expected' => 'Lambda ' . __NAMESPACE__ . '\\{closure} [stdClass param1d]',
             ],
             [
-                'callable' => static function (?\stdClass $param1e = null) {
+                'callable' => function (\stdClass $param1e = null) {
                     throw new \Exception('Don\'t even think about invoke me');
                 },
-                'expected' => $prettyClosureNames
-                    ? 'Lambda {closure:' . __CLASS__ . '::' . __FUNCTION__ . '():%d} [stdClass|null [param1e]]'
-                    : 'Lambda ' . __NAMESPACE__ . '\\{closure} [stdClass|null [param1e]]',
+                'expected' => 'Lambda ' . __NAMESPACE__ . '\\{closure} [stdClass|null [param1e]]',
             ],
             [
-                'callable' => static function (array &$param1f) {
+                'callable' => function (array &$param1f) {
                     throw new \Exception('Don\'t even think about invoke me');
                 },
-                'expected' => $prettyClosureNames
-                    ? 'Lambda {closure:' . __CLASS__ . '::' . __FUNCTION__ . '():%d} [array &param1f]'
-                    : 'Lambda ' . __NAMESPACE__ . '\\{closure} [array &param1f]',
+                'expected' => 'Lambda ' . __NAMESPACE__ . '\\{closure} [array &param1f]',
             ],
             [
-                'callable' => static function (?array &$param1g = null) {
+                'callable' => function (array &$param1g = null) {
                     throw new \Exception('Don\'t even think about invoke me');
                 },
-                'expected' => $prettyClosureNames
-                    ? 'Lambda {closure:' . __CLASS__ . '::' . __FUNCTION__ . '():%d} [array|null [&param1g]]'
-                    : 'Lambda ' . __NAMESPACE__ . '\\{closure} [array|null [&param1g]]',
+                'expected' => 'Lambda ' . __NAMESPACE__ . '\\{closure} [array|null [&param1g]]',
             ],
             [
                 'callable' => [$this, 'serializableCallableProvider'],
@@ -584,55 +506,38 @@ abstract class AbstractSerializerTest extends TestCase
                 'expected' => 'Callable void ' . SerializerTestObject::class . '::testy []',
             ],
             [
-                'callable' => static function (int $param1_70a) {
+                'callable' => function (int $param1_70a) {
                     throw new \Exception('Don\'t even think about invoke me');
                 },
-                'expected' => $prettyClosureNames
-                    ? 'Lambda {closure:' . __CLASS__ . '::' . __FUNCTION__ . '():%d} [int param1_70a]'
-                    : 'Lambda ' . __NAMESPACE__ . '\\{closure} [int param1_70a]',
+                'expected' => 'Lambda ' . __NAMESPACE__ . '\\{closure} [int param1_70a]',
             ],
             [
-                'callable' => static function (&$param): int {
+                'callable' => function (&$param): int {
                     return (int) $param;
                 },
-                'expected' => $prettyClosureNames
-                    ? 'Lambda int {closure:' . __CLASS__ . '::' . __FUNCTION__ . '():%d} [mixed|null &param]'
-                    : 'Lambda int ' . __NAMESPACE__ . '\\{closure} [mixed|null &param]',
+                'expected' => 'Lambda int ' . __NAMESPACE__ . '\\{closure} [mixed|null &param]',
             ],
             [
-                'callable' => static function (int $param): ?int {
+                'callable' => function (int $param): ?int {
                     throw new \Exception('Don\'t even think about invoke me');
                 },
-                'expected' => $prettyClosureNames
-                    ? 'Lambda int {closure:' . __CLASS__ . '::' . __FUNCTION__ . '():%d} [int param]'
-                    : 'Lambda int ' . __NAMESPACE__ . '\\{closure} [int param]',
+                'expected' => 'Lambda int ' . __NAMESPACE__ . '\\{closure} [int param]',
             ],
             [
-                'callable' => static function (?int $param1_70b) {
+                'callable' => function (?int $param1_70b) {
                     throw new \Exception('Don\'t even think about invoke me');
                 },
-                'expected' => $prettyClosureNames
-                    ? 'Lambda {closure:' . __CLASS__ . '::' . __FUNCTION__ . '():%d} [int|null param1_70b]'
-                    : 'Lambda ' . __NAMESPACE__ . '\\{closure} [int|null param1_70b]',
+                'expected' => 'Lambda ' . __NAMESPACE__ . '\\{closure} [int|null param1_70b]',
             ],
             [
-                'callable' => static function (?int $param1_70c): void {
+                'callable' => function (?int $param1_70c): void {
                     throw new \Exception('Don\'t even think about invoke me');
                 },
-                'expected' => $prettyClosureNames
-                    ? 'Lambda void {closure:' . __CLASS__ . '::' . __FUNCTION__ . '():%d} [int|null param1_70c]'
-                    : 'Lambda void ' . __NAMESPACE__ . '\\{closure} [int|null param1_70c]',
+                'expected' => 'Lambda void ' . __NAMESPACE__ . '\\{closure} [int|null param1_70c]',
             ],
             [
                 'callable' => $callableWithoutNamespaces,
-                'expected' => $prettyClosureNames
-                    ? 'Lambda void {closure:%s:%d} [int|null param1_70ns]'
-                    : 'Lambda void {closure} [int|null param1_70ns]',
-            ],
-            [
-                // This is (a example of) a PHP provided function that is technically callable but we want to ignore that because it causes more false positives than it helps
-                'callable' => 'header',
-                'expected' => 'header',
+                'expected' => 'Lambda void {closure} [int|null param1_70ns]',
             ],
             [
                 'callable' => __METHOD__,
@@ -649,17 +554,17 @@ abstract class AbstractSerializerTest extends TestCase
         $serializer = $this->createSerializer();
         $actual = $this->invokeSerialization($serializer, $callable);
 
-        $this->assertStringMatchesFormat($expected, $actual);
+        $this->assertSame($expected, $actual);
 
         $actual = $this->invokeSerialization($serializer, [$callable]);
 
-        $this->assertStringMatchesFormat($expected, $actual[0]);
+        $this->assertSame([$expected], $actual);
     }
 
     /**
      * @dataProvider serializationForBadStringsDataProvider
      */
-    public function testSerializationForBadStrings(string $string, string $expected, ?string $mbDetectOrder = null): void
+    public function testSerializationForBadStrings(string $string, string $expected, string $mbDetectOrder = null): void
     {
         $serializer = $this->createSerializer();
 

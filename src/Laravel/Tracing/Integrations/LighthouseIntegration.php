@@ -5,19 +5,14 @@ namespace Jasnita\Monitor\Laravel\Tracing\Integrations;
 use GraphQL\Language\AST\DocumentNode;
 use GraphQL\Language\AST\OperationDefinitionNode;
 use Illuminate\Contracts\Events\Dispatcher as EventDispatcher;
-use Illuminate\Support\Str;
 use Nuwave\Lighthouse\Events\EndExecution;
 use Nuwave\Lighthouse\Events\EndRequest;
 use Nuwave\Lighthouse\Events\StartExecution;
 use Nuwave\Lighthouse\Events\StartRequest;
-use Jasnita\Monitor\Sdk\Event;
 use Jasnita\Monitor\Sdk\Integration\IntegrationInterface;
 use Jasnita\Monitor\Laravel\Integration;
-use Jasnita\Monitor\Sdk\Options;
 use Jasnita\Monitor\Sdk\JasnitaSdk;
-use Jasnita\Monitor\Sdk\State\Scope;
 use Jasnita\Monitor\Sdk\Tracing\SpanContext;
-use Jasnita\Monitor\Sdk\Tracing\TransactionSource;
 
 class LighthouseIntegration implements IntegrationInterface
 {
@@ -45,73 +40,33 @@ class LighthouseIntegration implements IntegrationInterface
 
     public function __construct(EventDispatcher $eventDispatcher, bool $ignoreOperationName = false)
     {
-        $this->eventDispatcher = $eventDispatcher;
+        $this->eventDispatcher     = $eventDispatcher;
         $this->ignoreOperationName = $ignoreOperationName;
     }
 
     public function setupOnce(): void
     {
-        if (!$this->isApplicable()) {
-            return;
+        if ($this->isApplicable()) {
+            $this->eventDispatcher->listen(StartRequest::class, [$this, 'handleStartRequest']);
+            $this->eventDispatcher->listen(StartExecution::class, [$this, 'handleStartExecution']);
+            $this->eventDispatcher->listen(EndExecution::class, [$this, 'handleEndExecution']);
+            $this->eventDispatcher->listen(EndRequest::class, [$this, 'handleEndRequest']);
         }
-
-        $this->eventDispatcher->listen(StartRequest::class, [$this, 'handleStartRequest']);
-        $this->eventDispatcher->listen(StartExecution::class, [$this, 'handleStartExecution']);
-        $this->eventDispatcher->listen(EndExecution::class, [$this, 'handleEndExecution']);
-        $this->eventDispatcher->listen(EndRequest::class, [$this, 'handleEndRequest']);
-
-        Scope::addGlobalEventProcessor(function (Event $event): Event {
-            $currentHub = JasnitaSdk::getCurrentHub();
-            $integration = $currentHub->getIntegration(self::class);
-            $client = $currentHub->getClient();
-
-            // The client bound to the current hub, if any, could not have this
-            // integration enabled. If this is the case, bail out
-            if (null === $integration || null === $client) {
-                return $event;
-            }
-
-            $this->processEvent($event, $client->getOptions());
-
-            return $event;
-        });
-    }
-
-    private function processEvent(Event $event, Options $options): void
-    {
-        // Detect if we are processing a GraphQL request, if not skip processing the event
-        if ($event->getTransaction() === null || !Str::startsWith($event->getTransaction(), 'lighthouse?')) {
-            return;
-        }
-
-        $requestData = $event->getRequest();
-
-        // Make sure we have the request data and it contains the query
-        if (!isset($requestData['data']['query'])) {
-            return;
-        }
-
-        // (dokumentasi hulu)
-        $requestData['api_target'] = 'graphql';
-
-        $event->setRequest($requestData);
     }
 
     public function handleStartRequest(StartRequest $startRequest): void
     {
-        $this->previousSpan = JasnitaSdk::getCurrentHub()->getSpan();
+        $this->previousSpan = Integration::currentTracingSpan();
 
-        // If there is no sampled span there is no need to handle the event
-        if ($this->previousSpan === null || !$this->previousSpan->getSampled()) {
+        if ($this->previousSpan === null) {
             return;
         }
 
-        $context = SpanContext::make()
-            ->setOp('graphql.request')
-            ->setOrigin('auto.graphql.server');
+        $context = new SpanContext;
+        $context->setOp('graphql.request');
 
-        $this->operations = [];
-        $this->requestSpan = $this->previousSpan->startChild($context);
+        $this->operations    = [];
+        $this->requestSpan   = $this->previousSpan->startChild($context);
         $this->operationSpan = null;
 
         JasnitaSdk::getCurrentHub()->setSpan($this->requestSpan);
@@ -127,9 +82,10 @@ class LighthouseIntegration implements IntegrationInterface
             return;
         }
 
-        $operationDefinition = $this->extractOperationDefinitionNode($startExecution->query);
+        /** @var \GraphQL\Language\AST\OperationDefinitionNode|null $operationDefinition */
+        $operationDefinition = $startExecution->query->definitions[0] ?? null;
 
-        if ($operationDefinition === null) {
+        if (!$operationDefinition instanceof OperationDefinitionNode) {
             return;
         }
 
@@ -137,9 +93,8 @@ class LighthouseIntegration implements IntegrationInterface
 
         $this->updateTransactionName();
 
-        $context = SpanContext::make()
-            ->setOp("graphql.{$operationDefinition->operation}")
-            ->setOrigin('auto.graphql.server');
+        $context = new SpanContext;
+        $context->setOp("graphql.{$operationDefinition->operation}");
 
         $this->operationSpan = $this->requestSpan->startChild($context);
 
@@ -202,7 +157,7 @@ class LighthouseIntegration implements IntegrationInterface
             return;
         }
 
-        array_walk($groupedOperations, static function (&$operations, string $operationType) {
+        array_walk($groupedOperations, static function (array &$operations, string $operationType) {
             sort($operations, SORT_STRING);
 
             $operations = "{$operationType}{" . implode(',', $operations) . '}';
@@ -213,7 +168,6 @@ class LighthouseIntegration implements IntegrationInterface
         $transactionName = 'lighthouse?' . implode('&', $groupedOperations);
 
         $transaction->setName($transactionName);
-        $transaction->getMetadata()->setSource(TransactionSource::custom());
 
         Integration::setTransaction($transactionName);
     }
@@ -239,17 +193,6 @@ class LighthouseIntegration implements IntegrationInterface
         sort($selectionSet, SORT_STRING);
 
         return $selectionSet;
-    }
-
-    private function extractOperationDefinitionNode(DocumentNode $query): ?OperationDefinitionNode
-    {
-        foreach ($query->definitions as $definition) {
-            if ($definition instanceof OperationDefinitionNode) {
-                return $definition;
-            }
-        }
-
-        return null;
     }
 
     private function isApplicable(): bool

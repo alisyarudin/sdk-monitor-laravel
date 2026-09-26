@@ -6,15 +6,16 @@ use Exception;
 use Jasnita\Monitor\Sdk\Event;
 use Jasnita\Monitor\Sdk\EventHint;
 use Jasnita\Monitor\Laravel\Integration\ExceptionContextIntegration;
-use Jasnita\Monitor\Laravel\Tests\TestCase;
+use Jasnita\Monitor\Laravel\Tests\JasnitaLaravelTestCase;
+use Jasnita\Monitor\Sdk\JasnitaSdk;
 use Jasnita\Monitor\Sdk\State\Scope;
 use function Jasnita\Monitor\Sdk\withScope;
 
-class ExceptionContextIntegrationTest extends TestCase
+class ExceptionContextIntegrationTest extends JasnitaLaravelTestCase
 {
     public function testExceptionContextIntegrationIsRegistered(): void
     {
-        $integration = $this->getJasnitaHubFromContainer()->getIntegration(ExceptionContextIntegration::class);
+        $integration = $this->getHubFromContainer()->getIntegration(ExceptionContextIntegration::class);
 
         $this->assertInstanceOf(ExceptionContextIntegration::class, $integration);
     }
@@ -37,7 +38,7 @@ class ExceptionContextIntegrationTest extends TestCase
         });
     }
 
-    public static function invokeDataProvider(): iterable
+    public function invokeDataProvider(): iterable
     {
         yield 'Exception without context method -> no exception context' => [
             new Exception('Exception without context.'),
@@ -47,17 +48,17 @@ class ExceptionContextIntegrationTest extends TestCase
         $context = ['some' => 'context'];
 
         yield 'Exception with context method returning array of context' => [
-            self::generateExceptionWithContext($context),
+            $this->generateExceptionWithContext($context),
             $context,
         ];
 
         yield 'Exception with context method returning string of context' => [
-            self::generateExceptionWithContext('Invalid context, expects array'),
+            $this->generateExceptionWithContext('Invalid context, expects array'),
             null,
         ];
     }
 
-    private static function generateExceptionWithContext($context): Exception
+    private function generateExceptionWithContext($context)
     {
         return new class($context) extends Exception {
             private $context;

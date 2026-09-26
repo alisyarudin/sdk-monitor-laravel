@@ -12,7 +12,6 @@ use Jasnita\Monitor\Sdk\EventHint;
 use Jasnita\Monitor\Sdk\Integration\TransactionIntegration;
 use Jasnita\Monitor\Sdk\JasnitaSdk;
 use Jasnita\Monitor\Sdk\State\Scope;
-
 use function Jasnita\Monitor\Sdk\withScope;
 
 final class TransactionIntegrationTest extends TestCase

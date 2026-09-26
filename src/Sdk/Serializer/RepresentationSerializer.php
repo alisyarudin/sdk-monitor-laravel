@@ -37,26 +37,20 @@ class RepresentationSerializer extends AbstractSerializer implements Representat
      */
     protected function serializeValue($value)
     {
-        if ($value === null) {
+        if (null === $value) {
             return 'null';
         }
 
-        if ($value === false) {
+        if (false === $value) {
             return 'false';
         }
 
-        if ($value === true) {
+        if (true === $value) {
             return 'true';
         }
 
-        if (\is_float($value)) {
-            if (is_nan($value)) {
-                return 'NAN';
-            }
-
-            if ($this->isCastableToInt($value) && (int) $value == $value) {
-                return $value . '.0';
-            }
+        if (\is_float($value) && (int) $value == $value) {
+            return $value . '.0';
         }
 
         if (is_numeric($value)) {
@@ -64,16 +58,5 @@ class RepresentationSerializer extends AbstractSerializer implements Representat
         }
 
         return (string) parent::serializeValue($value);
-    }
-
-    /**
-     * Casting a non-finite float, or one that falls outside of the integer
-     * range, raises a warning as of PHP 8.5.
-     *
-     * @param float $value The value to check
-     */
-    private function isCastableToInt(float $value): bool
-    {
-        return $value >= (float) \PHP_INT_MIN && $value < (float) \PHP_INT_MAX;
     }
 }

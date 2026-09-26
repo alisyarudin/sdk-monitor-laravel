@@ -26,7 +26,7 @@ final class EnvironmentIntegration implements IntegrationInterface
         Scope::addGlobalEventProcessor(static function (Event $event): Event {
             $integration = JasnitaSdk::getCurrentHub()->getIntegration(self::class);
 
-            if ($integration !== null) {
+            if (null !== $integration) {
                 $event->setRuntimeContext($integration->updateRuntimeContext($event->getRuntimeContext()));
                 $event->setOsContext($integration->updateServerOsContext($event->getOsContext()));
             }
@@ -37,16 +37,12 @@ final class EnvironmentIntegration implements IntegrationInterface
 
     private function updateRuntimeContext(?RuntimeContext $runtimeContext): RuntimeContext
     {
-        if ($runtimeContext === null) {
+        if (null === $runtimeContext) {
             $runtimeContext = new RuntimeContext('php');
         }
 
-        if ($runtimeContext->getVersion() === null) {
+        if (null === $runtimeContext->getVersion()) {
             $runtimeContext->setVersion(PHPVersion::parseVersion());
-        }
-
-        if ($runtimeContext->getSAPI() === null) {
-            $runtimeContext->setSAPI(\PHP_SAPI);
         }
 
         return $runtimeContext;
@@ -58,23 +54,23 @@ final class EnvironmentIntegration implements IntegrationInterface
             return $osContext;
         }
 
-        if ($osContext === null) {
+        if (null === $osContext) {
             $osContext = new OsContext(php_uname('s'));
         }
 
-        if ($osContext->getVersion() === null) {
+        if (null === $osContext->getVersion()) {
             $osContext->setVersion(php_uname('r'));
         }
 
-        if ($osContext->getBuild() === null) {
+        if (null === $osContext->getBuild()) {
             $osContext->setBuild(php_uname('v'));
         }
 
-        if ($osContext->getKernelVersion() === null) {
+        if (null === $osContext->getKernelVersion()) {
             $osContext->setKernelVersion(php_uname('a'));
         }
 
-        if ($osContext->getMachineType() === null) {
+        if (null === $osContext->getMachineType()) {
             $osContext->setMachineType(php_uname('m'));
         }
 

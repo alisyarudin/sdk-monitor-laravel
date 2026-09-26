@@ -2,34 +2,33 @@
 
 namespace Jasnita\Monitor\Laravel\Tests;
 
-use Orchestra\Testbench\TestCase;
 use Jasnita\Monitor\Laravel\Facade;
 use Jasnita\Monitor\Laravel\ServiceProvider;
 use Jasnita\Monitor\Sdk\State\HubInterface;
 
-class ServiceProviderWithCustomAliasTest extends TestCase
+class ServiceProviderWithCustomAliasTest extends \Orchestra\Testbench\TestCase
 {
-    protected function defineEnvironment($app): void
+    protected function getEnvironmentSetUp($app)
     {
-        $app['config']->set('custom-jasnita.dsn', 'http://publickey@jasnita.dev/123');
+        $app['config']->set('custom-jasnita.dsn', 'http://publickey:secretkey@jasnita.dev/123');
         $app['config']->set('custom-jasnita.error_types', E_ALL ^ E_DEPRECATED ^ E_USER_DEPRECATED);
     }
 
-    protected function getPackageProviders($app): array
+    protected function getPackageProviders($app)
     {
         return [
             CustomJasnitaServiceProvider::class,
         ];
     }
 
-    protected function getPackageAliases($app): array
+    protected function getPackageAliases($app)
     {
         return [
             'CustomJasnita' => CustomJasnitaFacade::class,
         ];
     }
 
-    public function testIsBound(): void
+    public function testIsBound()
     {
         $this->assertTrue(app()->bound('custom-jasnita'));
         $this->assertInstanceOf(HubInterface::class, app('custom-jasnita'));
@@ -39,7 +38,7 @@ class ServiceProviderWithCustomAliasTest extends TestCase
     /**
      * @depends testIsBound
      */
-    public function testEnvironment(): void
+    public function testEnvironment()
     {
         $this->assertEquals('testing', app('custom-jasnita')->getClient()->getOptions()->getEnvironment());
     }
@@ -47,7 +46,7 @@ class ServiceProviderWithCustomAliasTest extends TestCase
     /**
      * @depends testIsBound
      */
-    public function testDsnWasSetFromConfig(): void
+    public function testDsnWasSetFromConfig()
     {
         /** @var \Jasnita\Monitor\Sdk\Options $options */
         $options = app('custom-jasnita')->getClient()->getOptions();
@@ -55,12 +54,13 @@ class ServiceProviderWithCustomAliasTest extends TestCase
         $this->assertEquals('http://jasnita.dev', $options->getDsn()->getScheme() . '://' . $options->getDsn()->getHost());
         $this->assertEquals(123, $options->getDsn()->getProjectId());
         $this->assertEquals('publickey', $options->getDsn()->getPublicKey());
+        $this->assertEquals('secretkey', $options->getDsn()->getSecretKey());
     }
 
     /**
      * @depends testIsBound
      */
-    public function testErrorTypesWasSetFromConfig(): void
+    public function testErrorTypesWasSetFromConfig()
     {
         $this->assertEquals(
             E_ALL ^ E_DEPRECATED ^ E_USER_DEPRECATED,
@@ -76,7 +76,7 @@ class CustomJasnitaServiceProvider extends ServiceProvider
 
 class CustomJasnitaFacade extends Facade
 {
-    protected static function getFacadeAccessor(): string
+    protected static function getFacadeAccessor()
     {
         return 'custom-jasnita';
     }

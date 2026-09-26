@@ -14,7 +14,7 @@ use Jasnita\Monitor\Sdk\Tracing\TraceId;
 
 final class PropagationContextTest extends TestCase
 {
-    public function testFromDefaults(): void
+    public function testFromDefaults()
     {
         $propagationContext = PropagationContext::fromDefaults();
 
@@ -27,17 +27,17 @@ final class PropagationContextTest extends TestCase
     /**
      * @dataProvider tracingDataProvider
      */
-    public function testFromHeaders(string $jasnitaTraceHeader, string $baggageHeader, ?TraceId $expectedTraceId, ?SpanId $expectedParentSpanId, ?bool $expectedDynamicSamplingContextFrozen): void
+    public function testFromHeaders(string $jasnitaTraceHeader, string $baggageHeader, ?TraceId $expectedTraceId, ?SpanId $expectedParentSpanId, ?bool $expectedDynamicSamplingContextFrozen)
     {
         $propagationContext = PropagationContext::fromHeaders($jasnitaTraceHeader, $baggageHeader);
 
         $this->assertInstanceOf(TraceId::class, $propagationContext->getTraceId());
-        if ($expectedTraceId !== null) {
+        if (null !== $expectedTraceId) {
             $this->assertSame((string) $expectedTraceId, (string) $propagationContext->getTraceId());
         }
 
         $this->assertInstanceOf(SpanId::class, $propagationContext->getParentSpanId());
-        if ($expectedParentSpanId !== null) {
+        if (null !== $expectedParentSpanId) {
             $this->assertSame((string) $expectedParentSpanId, (string) $propagationContext->getParentSpanId());
         }
 
@@ -49,17 +49,17 @@ final class PropagationContextTest extends TestCase
     /**
      * @dataProvider tracingDataProvider
      */
-    public function testFromEnvironment(string $jasnitaTrace, string $baggage, ?TraceId $expectedTraceId, ?SpanId $expectedParentSpanId, ?bool $expectedDynamicSamplingContextFrozen): void
+    public function testFromEnvironment(string $jasnitaTrace, string $baggage, ?TraceId $expectedTraceId, ?SpanId $expectedParentSpanId, ?bool $expectedDynamicSamplingContextFrozen)
     {
         $propagationContext = PropagationContext::fromEnvironment($jasnitaTrace, $baggage);
 
         $this->assertInstanceOf(TraceId::class, $propagationContext->getTraceId());
-        if ($expectedTraceId !== null) {
+        if (null !== $expectedTraceId) {
             $this->assertSame((string) $expectedTraceId, (string) $propagationContext->getTraceId());
         }
 
         $this->assertInstanceOf(SpanId::class, $propagationContext->getParentSpanId());
-        if ($expectedParentSpanId !== null) {
+        if (null !== $expectedParentSpanId) {
             $this->assertSame((string) $expectedParentSpanId, (string) $propagationContext->getParentSpanId());
         }
 
@@ -95,7 +95,7 @@ final class PropagationContextTest extends TestCase
         ];
     }
 
-    public function testToTraceparent(): void
+    public function testToTraceparent()
     {
         $propagationContext = PropagationContext::fromDefaults();
         $propagationContext->setTraceId(new TraceId('566e3688a61d4bc888951642d6f14a19'));
@@ -104,7 +104,7 @@ final class PropagationContextTest extends TestCase
         $this->assertSame('566e3688a61d4bc888951642d6f14a19-566e3688a61d4bc8', $propagationContext->toTraceparent());
     }
 
-    public function testToBaggage(): void
+    public function testToBaggage()
     {
         $dynamicSamplingContext = DynamicSamplingContext::fromHeader('jasnita-trace_id=566e3688a61d4bc888951642d6f14a19');
         $propagationContext = PropagationContext::fromDefaults();
@@ -113,7 +113,7 @@ final class PropagationContextTest extends TestCase
         $this->assertSame('jasnita-trace_id=566e3688a61d4bc888951642d6f14a19', $propagationContext->toBaggage());
     }
 
-    public function testGetTraceContext(): void
+    public function testGetTraceContext()
     {
         $propagationContext = PropagationContext::fromDefaults();
         $propagationContext->setTraceId(new TraceId('566e3688a61d4bc888951642d6f14a19'));
@@ -134,56 +134,6 @@ final class PropagationContextTest extends TestCase
             'span_id' => (string) $propagationContext->getSpanId(),
             'parent_span_id' => (string) $propagationContext->getParentSpanId(),
         ], $propagationContext->getTraceContext());
-    }
-
-    /**
-     * @dataProvider invalidSampleRandDataProvider
-     */
-    public function testInvalidSampleRandIsIgnored(string $sampleRand): void
-    {
-        $propagationContext = PropagationContext::fromHeaders(
-            '566e3688a61d4bc888951642d6f14a19-566e3688a61d4bc8-1',
-            'jasnita-sample_rate=0.4,jasnita-sample_rand=' . rawurlencode($sampleRand)
-        );
-
-        $generatedSampleRand = $propagationContext->getSampleRand();
-
-        $this->assertNotNull($generatedSampleRand);
-        $this->assertGreaterThanOrEqual(0.0, $generatedSampleRand);
-        $this->assertLessThan(0.4, $generatedSampleRand);
-    }
-
-    public function testSampleRandIsIgnoredWithoutJasnitaTraceHeader(): void
-    {
-        $propagationContext = PropagationContext::fromHeaders('', 'jasnita-sample_rand=-1.0');
-        $sampleRand = $propagationContext->getSampleRand();
-
-        $this->assertNotNull($sampleRand);
-        $this->assertGreaterThanOrEqual(0.0, $sampleRand);
-        $this->assertLessThanOrEqual(1.0, $sampleRand);
-    }
-
-    public static function invalidSampleRandDataProvider(): iterable
-    {
-        yield ['-1.0'];
-        yield ['1'];
-        yield ['2.0'];
-        yield ['foo'];
-    }
-
-    public function testSampleRandRangeWhenParentNotSampledAndSampleRateProvided(): void
-    {
-        $propagationContext = PropagationContext::fromHeaders(
-            '566e3688a61d4bc888951642d6f14a19-566e3688a61d4bc8-0',
-            'jasnita-sample_rate=0.4'
-        );
-
-        $sampleRand = $propagationContext->getSampleRand();
-
-        $this->assertNotNull($sampleRand);
-        // Should be within [rate, 1) and rounded to 6 decimals
-        $this->assertGreaterThanOrEqual(0.4, $sampleRand);
-        $this->assertLessThanOrEqual(0.999999, $sampleRand);
     }
 
     /**

@@ -42,7 +42,7 @@ final class HubAdapter implements HubInterface
      */
     public static function getInstance(): self
     {
-        if (self::$instance === null) {
+        if (null === self::$instance) {
             self::$instance = new self();
         }
 
@@ -165,6 +165,8 @@ final class HubAdapter implements HubInterface
 
     /**
      * {@inheritdoc}
+     *
+     * @param array<string, mixed> $customSamplingContext Additional context that will be passed to the {@see SamplingContext}
      */
     public function startTransaction(TransactionContext $context, array $customSamplingContext = []): Transaction
     {
@@ -206,16 +208,8 @@ final class HubAdapter implements HubInterface
     /**
      * @see https://www.php.net/manual/en/language.oop5.magic.php#object.wakeup
      */
-    public function __wakeup(): void
+    public function __wakeup()
     {
         throw new \BadMethodCallException('Unserializing instances of this class is forbidden.');
-    }
-
-    /**
-     * @see https://www.php.net/manual/en/language.oop5.magic.php#object.sleep
-     */
-    public function __sleep()
-    {
-        throw new \BadMethodCallException('Serializing instances of this class is forbidden.');
     }
 }

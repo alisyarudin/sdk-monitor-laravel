@@ -6,6 +6,7 @@ namespace Jasnita\Monitor\Sdk\Integration;
 
 use Composer\InstalledVersions;
 use Jean85\PrettyVersions;
+use PackageVersions\Versions;
 use Jasnita\Monitor\Sdk\Event;
 use Jasnita\Monitor\Sdk\JasnitaSdk;
 use Jasnita\Monitor\Sdk\State\Scope;
@@ -31,7 +32,7 @@ final class ModulesIntegration implements IntegrationInterface
 
             // The integration could be bound to a client that is not the one
             // attached to the current hub. If this is the case, bail out
-            if ($integration !== null) {
+            if (null !== $integration) {
                 $event->setModules(self::getComposerPackages());
             }
 
@@ -66,19 +67,9 @@ final class ModulesIntegration implements IntegrationInterface
             return InstalledVersions::getInstalledPackages();
         }
 
-        $versionsClass = 'PackageVersions\\Versions';
-
-        if (class_exists($versionsClass)) {
+        if (class_exists(Versions::class)) {
             // BC layer for Composer 1, using a transient dependency
-            /** @var mixed $versions */
-            $versions = \constant($versionsClass . '::VERSIONS');
-
-            if (\is_array($versions)) {
-                /** @var string[] $packages */
-                $packages = array_keys($versions);
-
-                return $packages;
-            }
+            return array_keys(Versions::VERSIONS);
         }
 
         // this should not happen

@@ -2,28 +2,16 @@
 
 namespace Jasnita\Monitor\Laravel;
 
-use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Routing\Route;
-use Jasnita\Monitor\Sdk\EventHint;
-use Jasnita\Monitor\Sdk\EventId;
-use Jasnita\Monitor\Sdk\ExceptionMechanism;
-use Jasnita\Monitor\Laravel\Integration\ModelViolations as ModelViolationReports;
-use Jasnita\Monitor\Sdk\Logs\Logs;
-use Jasnita\Monitor\Sdk\Metrics\TraceMetrics;
+use Illuminate\Support\Str;
 use Jasnita\Monitor\Sdk\JasnitaSdk;
-use Jasnita\Monitor\Sdk\Tracing\TransactionSource;
-use Throwable;
+use Jasnita\Monitor\Sdk\Tracing\Span;
+use function Jasnita\Monitor\Sdk\addBreadcrumb;
+use function Jasnita\Monitor\Sdk\configureScope;
 use Jasnita\Monitor\Sdk\Breadcrumb;
 use Jasnita\Monitor\Sdk\Event;
 use Jasnita\Monitor\Sdk\Integration\IntegrationInterface;
 use Jasnita\Monitor\Sdk\State\Scope;
-
-use function Jasnita\Monitor\Sdk\addBreadcrumb;
-use function Jasnita\Monitor\Sdk\configureScope;
-use function Jasnita\Monitor\Sdk\getBaggage;
-use function Jasnita\Monitor\Sdk\getTraceparent;
-use function Jasnita\Monitor\Sdk\getW3CTraceparent;
-use function Jasnita\Monitor\Sdk\metrics;
 
 class Integration implements IntegrationInterface
 {
@@ -31,6 +19,11 @@ class Integration implements IntegrationInterface
      * @var null|string
      */
     private static $transaction;
+
+    /**
+     * @var null|string
+     */
+    private static $baseControllerNamespace;
 
     /**
      * {@inheritdoc}
@@ -49,16 +42,6 @@ class Integration implements IntegrationInterface
             }
 
             return $event;
-        });
-    }
-
-    /**
-     * Convenience method to register the exception handler with Laravel 11.0 and up.
-     */
-    public static function handles(Exceptions $exceptions): void
-    {
-        $exceptions->reportable(static function (Throwable $exception) {
-            self::captureUnhandledException($exception);
         });
     }
 
@@ -111,7 +94,15 @@ class Integration implements IntegrationInterface
     }
 
     /**
-     * Block until all events are processed by the PHP SDK client.
+     * @param null|string $namespace
+     */
+    public static function setControllersBaseNamespace(?string $namespace): void
+    {
+        self::$baseControllerNamespace = $namespace !== null ? trim($namespace, '\\') : null;
+    }
+
+    /**
+     * Block until all async events are processed for the HTTP transport.
      *
      * @internal This is not part of the public API and is here temporarily until
      *  the underlying issue can be resolved, this method will be removed.
@@ -122,215 +113,154 @@ class Integration implements IntegrationInterface
 
         if ($client !== null) {
             $client->flush();
-
-            Logs::getInstance()->flush();
-            TraceMetrics::getInstance()->flush();
         }
     }
 
     /**
-     * Extract the readable name for a route and the transaction source for where that route name came from.
+     * Extract the readable name for a route.
      *
      * @param \Illuminate\Routing\Route $route
      *
-     * @return array{0: string, 1: \Jasnita\Monitor\Sdk\Tracing\TransactionSource}
-     *
-     * @internal This helper is used in various places to extract meaningful info from a Laravel Route object.
+     * @return string
      */
-    public static function extractNameAndSourceForRoute(Route $route): array
+    public static function extractNameForRoute(Route $route): string
     {
-        return [
-            '/' . ltrim($route->uri(), '/'),
-            TransactionSource::route(),
-        ];
+        $routeName = null;
+
+        // someaction (route name/alias)
+        if ($route->getName()) {
+            $routeName = self::extractNameForNamedRoute($route->getName());
+        }
+
+        // Some\Controller@someAction (controller action)
+        if (empty($routeName) && $route->getActionName()) {
+            $routeName = self::extractNameForActionRoute($route->getActionName());
+        }
+
+        // /someaction // Fallback to the url
+        if (empty($routeName) || $routeName === 'Closure') {
+            $routeName = '/' . ltrim($route->uri(), '/');
+        }
+
+        return $routeName;
     }
 
     /**
-     * Extract the readable name for a Lumen route and the transaction source for where that route name came from.
+     * Extract the readable name for a Lumen route.
      *
-     * @param array $routeData The array of route data
-     * @param string $path The path of the request
+     * @param array  $routeData The array of route data
+     * @param string $path      The path of the request
      *
-     * @return array{0: string, 1: \Jasnita\Monitor\Sdk\Tracing\TransactionSource}
-     *
-     * @internal This helper is used in various places to extract meaningful info from Lumen route data.
+     * @return string
      */
-    public static function extractNameAndSourceForLumenRoute(array $routeData, string $path): array
+    public static function extractNameForLumenRoute(array $routeData, string $path): string
     {
-        $routeUri = array_reduce(
-            array_keys($routeData[2]),
-            static function ($carry, $key) use ($routeData) {
-                $search = '/' . preg_quote($routeData[2][$key], '/') . '/';
+        $routeName = null;
 
-                // Replace the first occurrence of the route parameter value with the key name
-                // This is by no means a perfect solution, but it's the best we can do with the data we have
-                return preg_replace($search, "{{$key}}", $carry, 1);
-            },
-            $path
-        );
+        $route = $routeData[1] ?? [];
 
-        return [
-            '/' . ltrim($routeUri, '/'),
-            TransactionSource::route(),
-        ];
+        // someaction (route name/alias)
+        if (!empty($route['as'])) {
+            $routeName = self::extractNameForNamedRoute($route['as']);
+        }
+
+        // Some\Controller@someAction (controller action)
+        if (empty($routeName) && !empty($route['uses'])) {
+            $routeName = self::extractNameForActionRoute($route['uses']);
+        }
+
+        // /someaction // Fallback to the url
+        if (empty($routeName) || $routeName === 'Closure') {
+            $routeUri = array_reduce(
+                array_keys($routeData[2]),
+                static function ($carry, $key) use ($routeData) {
+                    return str_replace($routeData[2][$key], "{{$key}}", $carry);
+                },
+                $path
+            );
+
+            $routeName = '/' . ltrim($routeUri, '/');
+        }
+
+        return $routeName;
+    }
+
+    /**
+     * Take a route name and return it only if it's a usable route name.
+     *
+     * @param string $name
+     *
+     * @return string|null
+     */
+    private static function extractNameForNamedRoute(string $name): ?string
+    {
+        // Laravel 7 route caching generates a route names if the user didn't specify one
+        // theirselfs to optimize route matching. These route names are useless to the
+        // developer so if we encounter a generated route name we discard the value
+        if (Str::contains($name, 'generated::')) {
+            return null;
+        }
+
+        // If the route name ends with a `.` we assume an incomplete group name prefix
+        // we discard this value since it will most likely not mean anything to the
+        // developer and will be duplicated by other unnamed routes in the group
+        if (Str::endsWith($name, '.')) {
+            return null;
+        }
+
+        return $name;
+    }
+
+    /**
+     * Take a controller action and strip away the base namespace if needed.
+     *
+     * @param string $action
+     *
+     * @return string
+     */
+    private static function extractNameForActionRoute(string $action): string
+    {
+        $routeName = ltrim($action, '\\');
+
+        $baseNamespace = self::$baseControllerNamespace ?? '';
+
+        if (empty($baseNamespace)) {
+            return $routeName;
+        }
+
+        // Strip away the base namespace from the action name
+        // @see: Str::after, but this is not available before Laravel 5.4 so we use a inlined version
+        return array_reverse(explode($baseNamespace . '\\', $routeName, 2))[0];
     }
 
     /**
      * Retrieve the meta tags with tracing information to link this request to front-end requests.
-     * This propagates the Dynamic Sampling Context.
-     *
-     * @return string
-     */
-    public static function jasnitaMeta(): string
-    {
-        return self::jasnitaTracingMeta() . self::jasnitaW3CTracingMeta() . self::jasnitaBaggageMeta();
-    }
-
-    /**
-     * Retrieve the `jasnita-trace` meta tag with tracing information to link this request to front-end requests.
      *
      * @return string
      */
     public static function jasnitaTracingMeta(): string
     {
-        return sprintf('<meta name="jasnita-trace" content="%s"/>', self::escapeMetaTagContent(getTraceparent()));
-    }
+        $span = self::currentTracingSpan();
 
-    /**
-     * Retrieve the `traceparent` meta tag with tracing information to link this request to front-end requests.
-     *
-     * @deprecated since version 4.14. To be removed in version 5.0.
-     * @return string
-     */
-    public static function jasnitaW3CTracingMeta(): string
-    {
-        return '';
-    }
-
-    /**
-     * Retrieve the `baggage` meta tag with information to link this request to front-end requests.
-     * This propagates the Dynamic Sampling Context.
-     *
-     * @return string
-     */
-    public static function jasnitaBaggageMeta(): string
-    {
-        return sprintf('<meta name="baggage" content="%s"/>', self::escapeMetaTagContent(getBaggage()));
-    }
-
-    private static function escapeMetaTagContent(string $value): string
-    {
-        return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-    }
-
-    /**
-     * Capture a unhandled exception and report it to Jasnita.
-     *
-     * @param \Throwable $throwable
-     *
-     * @return \Jasnita\Monitor\Sdk\EventId|null
-     */
-    public static function captureUnhandledException(Throwable $throwable): ?EventId
-    {
-        // We instruct users to call `captureUnhandledException` in their exception handler, however this does not mean
-        // the exception was actually unhandled. Laravel has the `report` helper function that is used to report to a log
-        // file or Jasnita, but that means they are handled otherwise they wouldn't have been routed through `report`. So to
-        // prevent marking those as "unhandled" we try and make an educated guess if the call to `captureUnhandledException`
-        // came from the `report` helper and shouldn't be marked as "unhandled" even though the come to us here to be reported
-        $handled = self::makeAnEducatedGuessIfTheExceptionMaybeWasHandled();
-
-        $hint = EventHint::fromArray([
-            'mechanism' => new ExceptionMechanism(ExceptionMechanism::TYPE_GENERIC, $handled),
-        ]);
-
-        return JasnitaSdk::getCurrentHub()->captureException($throwable, $hint);
-    }
-
-    /**
-     * Returns a callback that can be passed to `Model::handleMissingAttributeViolationUsing` to report missing attribute violations to Jasnita.
-     *
-     * @param callable|null $callback                 Optional callback to be called after the violation is reported to Jasnita.
-     * @param bool          $suppressDuplicateReports Whether to suppress duplicate reports of the same violation.
-     * @param bool          $reportAfterResponse      Whether to delay sending the report to after the response has been sent.
-     *
-     * @return callable
-     */
-    public static function missingAttributeViolationReporter(?callable $callback = null, bool $suppressDuplicateReports = true, bool $reportAfterResponse = true): callable
-    {
-        return new ModelViolationReports\MissingAttributeModelViolationReporter($callback, $suppressDuplicateReports, $reportAfterResponse);
-    }
-
-    /**
-     * Returns a callback that can be passed to `Model::handleLazyLoadingViolationUsing` to report lazy loading violations to Jasnita.
-     *
-     * @param callable|null $callback                 Optional callback to be called after the violation is reported to Jasnita.
-     * @param bool          $suppressDuplicateReports Whether to suppress duplicate reports of the same violation.
-     * @param bool          $reportAfterResponse      Whether to delay sending the report to after the response has been sent.
-     *
-     * @return callable
-     */
-    public static function lazyLoadingViolationReporter(?callable $callback = null, bool $suppressDuplicateReports = true, bool $reportAfterResponse = true): callable
-    {
-        return new ModelViolationReports\LazyLoadingModelViolationReporter($callback, $suppressDuplicateReports, $reportAfterResponse);
-    }
-
-    /**
-     * Returns a callback that can be passed to `Model::handleDiscardedAttributeViolationUsing` to report discarded attribute violations to Jasnita.
-     *
-     * @param callable|null $callback                 Optional callback to be called after the violation is reported to Jasnita.
-     * @param bool          $suppressDuplicateReports Whether to suppress duplicate reports of the same violation.
-     * @param bool          $reportAfterResponse      Whether to delay sending the report to after the response has been sent.
-     *
-     * @return callable
-     */
-    public static function discardedAttributeViolationReporter(?callable $callback = null, bool $suppressDuplicateReports = true, bool $reportAfterResponse = true): callable
-    {
-        return new ModelViolationReports\DiscardedAttributeViolationReporter($callback, $suppressDuplicateReports, $reportAfterResponse);
-    }
-
-    /**
-     * Try to make an educated guess if the call came from the Laravel `report` helper.
-     *
-     * @see https://github.com/laravel/framework/blob/008a4dd49c3a13343137d2bc43297e62006c7f29/src/Illuminate/Foundation/helpers.php#L667-L682
-     *
-     * @return bool
-     */
-    private static function makeAnEducatedGuessIfTheExceptionMaybeWasHandled(): bool
-    {
-        // We limit the amount of backtrace frames since it is very unlikely to be any deeper
-        $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 20);
-
-        // We are looking for `$handler->report()` to be called from the `report()` function
-        foreach ($trace as $frameIndex => $frame) {
-            // We need a frame with a class and function defined, we can skip frames missing either
-            if (!isset($frame['class'], $frame['function'])) {
-                continue;
-            }
-
-            // Check if the frame was indeed `$handler->report()`
-            if ($frame['type'] !== '->' || $frame['function'] !== 'report') {
-                continue;
-            }
-
-            // Make sure we have a next frame, we could have reached the end of the trace
-            if (!isset($trace[$frameIndex + 1])) {
-                continue;
-            }
-
-            // The next frame should contain the call to the `report()` helper function
-            $nextFrame = $trace[$frameIndex + 1];
-
-            // If a class was set or the function name is not `report` we can skip this frame
-            if (isset($nextFrame['class']) || !isset($nextFrame['function']) || $nextFrame['function'] !== 'report') {
-                continue;
-            }
-
-            // If we reached this point we can be pretty sure the `report` function was called
-            // and we can come to the educated conclusion the exception was indeed handled
-            return true;
+        if ($span === null) {
+            return '';
         }
 
-        // If we reached this point we can be pretty sure the `report` function was not called
-        return false;
+        $content = sprintf('<meta name="jasnita-trace" content="%s"/>', $span->toTraceparent());
+        // $content .= sprintf('<meta name="jasnita-trace-data" content="%s"/>', $span->getDescription());
+
+        return $content;
+    }
+
+    /**
+     * Get the current active tracing span from the scope.
+     *
+     * @return \Jasnita\Monitor\Sdk\Tracing\Span|null
+     *
+     * @internal This is used internally as an easy way to retrieve the current active tracing span.
+     */
+    public static function currentTracingSpan(): ?Span
+    {
+        return JasnitaSdk::getCurrentHub()->getSpan();
     }
 }

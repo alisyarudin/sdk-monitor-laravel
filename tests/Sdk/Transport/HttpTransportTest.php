@@ -4,31 +4,44 @@ declare(strict_types=1);
 
 namespace Jasnita\Monitor\Sdk\Tests\Transport;
 
-use PHPUnit\Framework\Constraint\StringMatchesFormatDescription;
+use GuzzleHttp\Promise\PromiseInterface;
+use GuzzleHttp\Promise\RejectionException;
+use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Psr7\Response;
+use GuzzleHttp\Psr7\Utils;
+use Http\Client\HttpAsyncClient as HttpAsyncClientInterface;
+use Http\Promise\FulfilledPromise as HttpFullfilledPromise;
+use Http\Promise\RejectedPromise as HttpRejectedPromise;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\RequestFactoryInterface;
+use Psr\Http\Message\StreamFactoryInterface;
+use Psr\Http\Message\StreamInterface;
 use Psr\Log\LoggerInterface;
+use Jasnita\Monitor\Sdk\Dsn;
 use Jasnita\Monitor\Sdk\Event;
-use Jasnita\Monitor\Sdk\HttpClient\HttpClientInterface;
-use Jasnita\Monitor\Sdk\HttpClient\Response;
 use Jasnita\Monitor\Sdk\Options;
-use Jasnita\Monitor\Sdk\Profiling\Profile;
+use Jasnita\Monitor\Sdk\ResponseStatus;
 use Jasnita\Monitor\Sdk\Serializer\PayloadSerializerInterface;
-use Jasnita\Monitor\Sdk\Tests\TestUtil\ClockMock;
 use Jasnita\Monitor\Sdk\Transport\HttpTransport;
-use Jasnita\Monitor\Sdk\Transport\ResultStatus;
+use Symfony\Bridge\PhpUnit\ClockMock;
 
 final class HttpTransportTest extends TestCase
 {
     /**
-     * @var LoggerInterface&MockObject
-     */
-    private $logger;
-
-    /**
-     * @var MockObject&HttpClientInterface
+     * @var MockObject&HttpAsyncClientInterface
      */
     private $httpClient;
+
+    /**
+     * @var MockObject&StreamFactoryInterface
+     */
+    private $streamFactory;
+
+    /**
+     * @var MockObject&RequestFactoryInterface
+     */
+    private $requestFactory;
 
     /**
      * @var MockObject&PayloadSerializerInterface
@@ -37,16 +50,82 @@ final class HttpTransportTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->logger = $this->createMock(LoggerInterface::class);
-        $this->httpClient = $this->createMock(HttpClientInterface::class);
+        $this->httpClient = $this->createMock(HttpAsyncClientInterface::class);
+        $this->streamFactory = $this->createMock(StreamFactoryInterface::class);
+        $this->requestFactory = $this->createMock(RequestFactoryInterface::class);
         $this->payloadSerializer = $this->createMock(PayloadSerializerInterface::class);
+    }
+
+    public function testSendThrowsIfDsnOptionIsNotSet(): void
+    {
+        $transport = new HttpTransport(
+            new Options(),
+            $this->httpClient,
+            $this->streamFactory,
+            $this->requestFactory,
+            $this->payloadSerializer
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('The DSN option must be set to use the "Jasnita\Monitor\Sdk\Transport\HttpTransport" transport.');
+
+        $transport->send(Event::createEvent());
+    }
+
+    public function testSendTransactionAsEnvelope(): void
+    {
+        $dsn = Dsn::createFromString('http://public@example.com/jasnita/1');
+        $event = Event::createTransaction();
+
+        $this->payloadSerializer->expects($this->once())
+            ->method('serialize')
+            ->with($event)
+            ->willReturn('{"foo":"bar"}');
+
+        $this->requestFactory->expects($this->once())
+            ->method('createRequest')
+            ->with('POST', $dsn->getEnvelopeApiEndpointUrl())
+            ->willReturn(new Request('POST', 'http://www.example.com'));
+
+        $this->streamFactory->expects($this->once())
+            ->method('createStream')
+            ->with('{"foo":"bar"}')
+            ->willReturnCallback(static function (string $content): StreamInterface {
+                return Utils::streamFor($content);
+            });
+
+        $this->httpClient->expects($this->once())
+            ->method('sendAsyncRequest')
+            ->with($this->callback(function (Request $requestArg): bool {
+                if ('application/x-jasnita-envelope' !== $requestArg->getHeaderLine('Content-Type')) {
+                    return false;
+                }
+
+                if ('{"foo":"bar"}' !== $requestArg->getBody()->getContents()) {
+                    return false;
+                }
+
+                return true;
+            }))
+            ->willReturn(new HttpFullfilledPromise(new Response()));
+
+        $transport = new HttpTransport(
+            new Options(['dsn' => $dsn]),
+            $this->httpClient,
+            $this->streamFactory,
+            $this->requestFactory,
+            $this->payloadSerializer
+        );
+
+        $transport->send($event);
     }
 
     /**
      * @dataProvider sendDataProvider
      */
-    public function testSend(Response $response, ResultStatus $expectedResultStatus, bool $expectEventReturned, array $expectedLogMessages): void
+    public function testSend(int $httpStatusCode, string $expectedPromiseStatus, ResponseStatus $expectedResponseStatus): void
     {
+        $dsn = Dsn::createFromString('http://public@example.com/jasnita/1');
         $event = Event::createEvent();
 
         $this->payloadSerializer->expects($this->once())
@@ -54,110 +133,72 @@ final class HttpTransportTest extends TestCase
             ->with($event)
             ->willReturn('{"foo":"bar"}');
 
-        $this->httpClient->expects($this->once())
-            ->method('sendRequest')
-            ->willReturn($response);
+        $this->streamFactory->expects($this->once())
+            ->method('createStream')
+            ->with('{"foo":"bar"}')
+            ->willReturnCallback(static function (string $content): StreamInterface {
+                return Utils::streamFor($content);
+            });
 
-        foreach ($expectedLogMessages as $level => $messages) {
-            $this->logger->expects($this->exactly(\count($messages)))
-                ->method($level)
-                ->with($this->logicalOr(
-                    ...array_map(static function (string $message) {
-                        return new StringMatchesFormatDescription($message);
-                    }, $messages)
-                ));
-        }
+        $this->requestFactory->expects($this->once())
+            ->method('createRequest')
+            ->with('POST', $dsn->getStoreApiEndpointUrl())
+            ->willReturn(new Request('POST', 'http://www.example.com'));
+
+        $this->httpClient->expects($this->once())
+            ->method('sendAsyncRequest')
+            ->with($this->callback(function (Request $requestArg): bool {
+                if ('application/json' !== $requestArg->getHeaderLine('Content-Type')) {
+                    return false;
+                }
+
+                if ('{"foo":"bar"}' !== $requestArg->getBody()->getContents()) {
+                    return false;
+                }
+
+                return true;
+            }))
+            ->willReturn(new HttpFullfilledPromise(new Response($httpStatusCode)));
 
         $transport = new HttpTransport(
-            new Options([
-                'dsn' => 'http://public@example.com/1',
-            ]),
+            new Options(['dsn' => 'http://public@example.com/jasnita/1']),
             $this->httpClient,
-            $this->payloadSerializer,
-            $this->logger
+            $this->streamFactory,
+            $this->requestFactory,
+            $this->payloadSerializer
         );
 
-        // We need to mock the time to ensure that the rate limiter works as expected and we can easily assert the log messages
-        ClockMock::withClockMock(1644105600);
+        $promise = $transport->send($event);
 
-        $result = $transport->send($event);
-
-        $this->assertSame($expectedResultStatus, $result->getStatus());
-        if ($expectEventReturned) {
-            $this->assertSame($event, $result->getEvent());
+        try {
+            $promiseResult = $promise->wait();
+        } catch (RejectionException $exception) {
+            $promiseResult = $exception->getReason();
         }
+
+        $this->assertSame($expectedPromiseStatus, $promise->getState());
+        $this->assertSame($expectedResponseStatus, $promiseResult->getStatus());
+        $this->assertSame($event, $promiseResult->getEvent());
     }
 
     public static function sendDataProvider(): iterable
     {
         yield [
-            new Response(200, [], ''),
-            ResultStatus::success(),
-            true,
-            [
-                'info' => [
-                    'Sending event [%s] to %s [project:%s].',
-                    'Sent event [%s] to %s [project:%s]. Result: "success" (status: 200).',
-                ],
-            ],
+            200,
+            PromiseInterface::FULFILLED,
+            ResponseStatus::success(),
         ];
 
         yield [
-            new Response(401, [], ''),
-            ResultStatus::invalid(),
-            false,
-            [
-                'info' => [
-                    'Sending event [%s] to %s [project:%s].',
-                    'Sent event [%s] to %s [project:%s]. Result: "invalid" (status: 401).',
-                ],
-            ],
-        ];
-
-        yield [
-            new Response(413, [], ''),
-            ResultStatus::contentTooLarge(),
-            false,
-            [
-                'info' => [
-                    'Sending event [%s] to %s [project:%s].',
-                    'Sent event [%s] to %s [project:%s]. Result: "content_too_large" (status: 413).',
-                ],
-            ],
-        ];
-
-        ClockMock::withClockMock(1644105600);
-
-        yield [
-            new Response(429, ['Retry-After' => ['60']], ''),
-            ResultStatus::rateLimit(),
-            false,
-            [
-                'info' => [
-                    'Sending event [%s] to %s [project:%s].',
-                    'Sent event [%s] to %s [project:%s]. Result: "rate_limit" (status: 429).',
-                ],
-                'warning' => [
-                    'Rate limited exceeded for all categories, backing off until "2022-02-06T00:01:00+00:00".',
-                ],
-            ],
-        ];
-
-        yield [
-            new Response(500, [], ''),
-            ResultStatus::failed(),
-            false,
-            [
-                'info' => [
-                    'Sending event [%s] to %s [project:%s].',
-                    'Sent event [%s] to %s [project:%s]. Result: "failed" (status: 500).',
-                ],
-            ],
+            500,
+            PromiseInterface::REJECTED,
+            ResponseStatus::failed(),
         ];
     }
 
-    public function testSendFailsDueToHttpClientException(): void
+    public function testSendReturnsRejectedPromiseIfSendingFailedDueToHttpClientException(): void
     {
+        $dsn = Dsn::createFromString('http://public@example.com/jasnita/1');
         $exception = new \Exception('foo');
         $event = Event::createEvent();
 
@@ -165,77 +206,59 @@ final class HttpTransportTest extends TestCase
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects($this->once())
             ->method('error')
-            ->with(
-                new StringMatchesFormatDescription('Failed to send event [%s] to %s [project:%s]. Reason: "foo".'),
-                ['exception' => $exception, 'event' => $event]
-            );
+            ->with('Failed to send the event to Jasnita. Reason: "foo".', ['exception' => $exception, 'event' => $event]);
 
         $this->payloadSerializer->expects($this->once())
             ->method('serialize')
             ->with($event)
             ->willReturn('{"foo":"bar"}');
 
+        $this->requestFactory->expects($this->once())
+            ->method('createRequest')
+            ->with('POST', $dsn->getStoreApiEndpointUrl())
+            ->willReturn(new Request('POST', 'http://www.example.com'));
+
+        $this->streamFactory->expects($this->once())
+            ->method('createStream')
+            ->with('{"foo":"bar"}')
+            ->willReturnCallback(static function (string $content): StreamInterface {
+                return Utils::streamFor($content);
+            });
+
         $this->httpClient->expects($this->once())
-            ->method('sendRequest')
-            ->will($this->throwException($exception));
+            ->method('sendAsyncRequest')
+            ->willReturn(new HttpRejectedPromise($exception));
 
         $transport = new HttpTransport(
-            new Options([
-                'dsn' => 'http://public@example.com/1',
-            ]),
+            new Options(['dsn' => $dsn]),
             $this->httpClient,
+            $this->streamFactory,
+            $this->requestFactory,
             $this->payloadSerializer,
             $logger
         );
 
-        $result = $transport->send($event);
+        $promise = $transport->send($event);
 
-        $this->assertSame(ResultStatus::failed(), $result->getStatus());
-    }
+        try {
+            $promiseResult = $promise->wait();
+        } catch (RejectionException $exception) {
+            $promiseResult = $exception->getReason();
+        }
 
-    public function testSendFailsDueToCurlError(): void
-    {
-        $event = Event::createEvent();
-
-        /** @var LoggerInterface&MockObject $logger */
-        $logger = $this->createMock(LoggerInterface::class);
-        $logger->expects($this->once())
-            ->method('error')
-            ->with(
-                new StringMatchesFormatDescription('Failed to send event [%s] to %s [project:%s]. Reason: "cURL Error (6) Could not resolve host: example.com".'),
-                ['event' => $event]
-            );
-
-        $this->payloadSerializer->expects($this->once())
-            ->method('serialize')
-            ->with($event)
-            ->willReturn('{"foo":"bar"}');
-
-        $this->httpClient->expects($this->once())
-            ->method('sendRequest')
-            ->willReturn(new Response(0, [], 'cURL Error (6) Could not resolve host: example.com'));
-
-        $transport = new HttpTransport(
-            new Options([
-                'dsn' => 'http://public@example.com/1',
-            ]),
-            $this->httpClient,
-            $this->payloadSerializer,
-            $logger
-        );
-
-        $result = $transport->send($event);
-
-        $this->assertSame(ResultStatus::unknown(), $result->getStatus());
+        $this->assertSame(PromiseInterface::REJECTED, $promise->getState());
+        $this->assertSame(ResponseStatus::failed(), $promiseResult->getStatus());
+        $this->assertSame($event, $promiseResult->getEvent());
     }
 
     /**
      * @group time-sensitive
      */
-    public function testSendFailsDueToExceedingRateLimits(): void
+    public function testSendReturnsRejectedPromiseIfExceedingRateLimits(): void
     {
         ClockMock::withClockMock(1644105600);
 
+        $dsn = Dsn::createFromString('http://public@example.com/jasnita/1');
         $event = Event::createEvent();
 
         /** @var LoggerInterface&MockObject $logger */
@@ -243,7 +266,7 @@ final class HttpTransportTest extends TestCase
         $logger->expects($this->exactly(2))
             ->method('warning')
             ->withConsecutive(
-                ['Rate limited exceeded for all categories, backing off until "2022-02-06T00:01:00+00:00".'],
+                ['Rate limited exceeded for requests of type "event", backing off until "2022-02-06T00:01:00+00:00".', ['event' => $event]],
                 ['Rate limit exceeded for sending requests of type "event".', ['event' => $event]]
             );
 
@@ -252,139 +275,69 @@ final class HttpTransportTest extends TestCase
             ->with($event)
             ->willReturn('{"foo":"bar"}');
 
+        $this->requestFactory->expects($this->once())
+            ->method('createRequest')
+            ->with('POST', $dsn->getStoreApiEndpointUrl())
+            ->willReturn(new Request('POST', 'http://www.example.com'));
+
+        $this->streamFactory->expects($this->once())
+            ->method('createStream')
+            ->with('{"foo":"bar"}')
+            ->willReturnCallback([Utils::class, 'streamFor']);
+
         $this->httpClient->expects($this->once())
-            ->method('sendRequest')
-            ->willReturn(new Response(429, ['Retry-After' => ['60']], ''));
+            ->method('sendAsyncRequest')
+            ->willReturn(new HttpFullfilledPromise(new Response(429, ['Retry-After' => '60'])));
 
         $transport = new HttpTransport(
-            new Options([
-                'dsn' => 'http://public@example.com/1',
-            ]),
+            new Options(['dsn' => $dsn]),
             $this->httpClient,
+            $this->streamFactory,
+            $this->requestFactory,
             $this->payloadSerializer,
             $logger
         );
 
         // Event should be sent, but the server should reply with a HTTP 429
-        $result = $transport->send($event);
+        $promise = $transport->send($event);
 
-        $this->assertSame(ResultStatus::rateLimit(), $result->getStatus());
+        try {
+            $promiseResult = $promise->wait();
+        } catch (RejectionException $exception) {
+            $promiseResult = $exception->getReason();
+        }
+
+        $this->assertSame(PromiseInterface::REJECTED, $promise->getState());
+        $this->assertSame(ResponseStatus::rateLimit(), $promiseResult->getStatus());
+        $this->assertSame($event, $promiseResult->getEvent());
 
         // Event should not be sent at all because rate-limit is in effect
-        $result = $transport->send($event);
+        $promise = $transport->send($event);
 
-        $this->assertSame(ResultStatus::rateLimit(), $result->getStatus());
-    }
+        try {
+            $promiseResult = $promise->wait();
+        } catch (RejectionException $exception) {
+            $promiseResult = $exception->getReason();
+        }
 
-    /**
-     * @group time-sensitive
-     */
-    public function testDropsProfileAndSendsTransactionWhenProfileRateLimited(): void
-    {
-        ClockMock::withClockMock(1644105600);
-
-        $transport = new HttpTransport(
-            new Options(['dsn' => 'http://public@example.com/1']),
-            $this->httpClient,
-            $this->payloadSerializer,
-            $this->logger
-        );
-
-        $event = Event::createTransaction();
-        $event->setSdkMetadata('profile', new Profile());
-
-        $this->payloadSerializer->expects($this->exactly(2))
-            ->method('serialize')
-            ->willReturn('{"foo":"bar"}');
-
-        $this->httpClient->expects($this->exactly(2))
-            ->method('sendRequest')
-            ->willReturnOnConsecutiveCalls(
-                new Response(429, ['X-Jasnita-Rate-Limits' => ['60:profile:key']], ''),
-                new Response(200, [], '')
-            );
-
-        // First request is rate limited because of profiles
-        $result = $transport->send($event);
-
-        $this->assertEquals(ResultStatus::rateLimit(), $result->getStatus());
-
-        // profile information is still present
-        $this->assertNotNull($event->getSdkMetadata('profile'));
-
-        $event = Event::createTransaction();
-        $event->setSdkMetadata('profile', new Profile());
-
-        $this->logger->expects($this->once())
-            ->method('warning')
-            ->with(
-                $this->stringContains('Rate limit exceeded for sending requests of type "profile".'),
-                ['event' => $event]
-            );
-
-        $result = $transport->send($event);
-
-        // Sending transaction is successful because only profiles are rate limited
-        $this->assertEquals(ResultStatus::success(), $result->getStatus());
-
-        // profile information is removed because it was rate limited
-        $this->assertNull($event->getSdkMetadata('profile'));
-    }
-
-    /**
-     * @group time-sensitive
-     */
-    public function testCheckInsAreRateLimited(): void
-    {
-        ClockMock::withClockMock(1644105600);
-
-        $transport = new HttpTransport(
-            new Options(['dsn' => 'http://public@example.com/1']),
-            $this->httpClient,
-            $this->payloadSerializer,
-            $this->logger
-        );
-
-        $event = Event::createCheckIn();
-
-        $this->payloadSerializer->expects($this->exactly(1))
-            ->method('serialize')
-            ->willReturn('{"foo":"bar"}');
-
-        $this->httpClient->expects($this->exactly(1))
-            ->method('sendRequest')
-            ->willReturn(
-                new Response(429, ['X-Jasnita-Rate-Limits' => ['60:monitor:key']], '')
-            );
-
-        $result = $transport->send($event);
-
-        $this->assertEquals(ResultStatus::rateLimit(), $result->getStatus());
-
-        $event = Event::createCheckIn();
-
-        $this->logger->expects($this->once())
-            ->method('warning')
-            ->with(
-                $this->stringContains('Rate limit exceeded for sending requests of type "check_in".'),
-                ['event' => $event]
-            );
-
-        $result = $transport->send($event);
-
-        $this->assertEquals(ResultStatus::rateLimit(), $result->getStatus());
+        $this->assertSame(PromiseInterface::REJECTED, $promise->getState());
+        $this->assertSame(ResponseStatus::rateLimit(), $promiseResult->getStatus());
+        $this->assertSame($event, $promiseResult->getEvent());
     }
 
     public function testClose(): void
     {
         $transport = new HttpTransport(
-            new Options(),
-            $this->createMock(HttpClientInterface::class),
+            new Options(['dsn' => 'http://public@example.com/jasnita/1']),
+            $this->createMock(HttpAsyncClientInterface::class),
+            $this->createMock(StreamFactoryInterface::class),
+            $this->createMock(RequestFactoryInterface::class),
             $this->createMock(PayloadSerializerInterface::class)
         );
 
-        $result = $transport->close();
+        $promise = $transport->close();
 
-        $this->assertSame(ResultStatus::success(), $result->getStatus());
+        $this->assertSame(PromiseInterface::FULFILLED, $promise->getState());
+        $this->assertTrue($promise->wait());
     }
 }

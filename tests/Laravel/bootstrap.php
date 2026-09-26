@@ -1,6 +1,6 @@
 <?php // Dihasilkan tools/rebrand.php dari hulu sdk-laravel — jangan diubah manual.
 
-error_reporting(E_ALL | 2048);
+error_reporting(E_ALL | E_STRICT);
 
 session_start();
 

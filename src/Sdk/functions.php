@@ -4,78 +4,16 @@ declare(strict_types=1);
 
 namespace Jasnita\Monitor\Sdk;
 
-use Psr\Log\LoggerInterface;
-use Jasnita\Monitor\Sdk\Attachment\Attachment;
-use Jasnita\Monitor\Sdk\HttpClient\HttpClientInterface;
-use Jasnita\Monitor\Sdk\Integration\IntegrationInterface;
-use Jasnita\Monitor\Sdk\Integration\OTLPIntegration;
-use Jasnita\Monitor\Sdk\Logs\Logs;
-use Jasnita\Monitor\Sdk\Metrics\Metrics;
-use Jasnita\Monitor\Sdk\Metrics\TraceMetrics;
-use Jasnita\Monitor\Sdk\State\HubInterface;
 use Jasnita\Monitor\Sdk\State\Scope;
 use Jasnita\Monitor\Sdk\Tracing\PropagationContext;
 use Jasnita\Monitor\Sdk\Tracing\SpanContext;
 use Jasnita\Monitor\Sdk\Tracing\Transaction;
 use Jasnita\Monitor\Sdk\Tracing\TransactionContext;
-use Jasnita\Monitor\Sdk\Transport\TransportInterface;
 
 /**
  * Creates a new Client and Hub which will be set as current.
  *
- * @param array{
- *     attach_metric_code_locations?: bool,
- *     attach_stacktrace?: bool,
- *     before_breadcrumb?: callable,
- *     before_send?: callable,
- *     before_send_check_in?: callable,
- *     before_send_log?: callable,
- *     before_send_transaction?: callable,
- *     capture_silenced_errors?: bool,
- *     context_lines?: int|null,
- *     default_integrations?: bool,
- *     dsn?: string|bool|Dsn|null,
- *     enable_logs?: bool,
- *     enable_metrics?: bool,
- *     environment?: string|null,
- *     error_types?: int|null,
- *     http_client?: HttpClientInterface|null,
- *     http_compression?: bool,
- *     http_connect_timeout?: int|float,
- *     http_proxy?: string|null,
- *     http_proxy_authentication?: string|null,
- *     http_ssl_verify_peer?: bool,
- *     http_timeout?: int|float,
- *     http_enable_curl_share_handle?: bool,
- *     ignore_exceptions?: array<class-string>,
- *     ignore_transactions?: array<string>,
- *     in_app_exclude?: array<string>,
- *     in_app_include?: array<string>,
- *     integrations?: IntegrationInterface[]|callable(IntegrationInterface[]): IntegrationInterface[],
- *     logger?: LoggerInterface|null,
- *     log_flush_threshold?: int|null,
- *     metric_flush_threshold?: int|null,
- *     max_breadcrumbs?: int,
- *     max_request_body_size?: "none"|"never"|"small"|"medium"|"always",
- *     max_value_length?: int,
- *     org_id?: int|null,
- *     prefixes?: array<string>,
- *     profiles_sample_rate?: int|float|null,
- *     profiles_sampler?: callable|null,
- *     release?: string|null,
- *     sample_rate?: float|int,
- *     send_attempts?: int,
- *     send_default_pii?: bool,
- *     server_name?: string,
- *     spotlight?: bool,
- *     spotlight_url?: string,
- *     strict_trace_continuation?: bool,
- *     tags?: array<string>,
- *     trace_propagation_targets?: array<string>|null,
- *     traces_sample_rate?: float|int|null,
- *     traces_sampler?: callable|null,
- *     transport?: TransportInterface|null,
- * } $options The client options
+ * @param array<string, mixed> $options The client options
  */
 function init(array $options = []): void
 {
@@ -143,55 +81,15 @@ function captureCheckIn(string $slug, CheckInStatus $status, $duration = null, ?
 }
 
 /**
- * Execute the given callable while wrapping it in a monitor check-in.
- *
- * @param string             $slug          Identifier of the Monitor
- * @param callable           $callback      The callable that is going to be monitored
- * @param MonitorConfig|null $monitorConfig Configuration of the Monitor
- *
- * @return mixed
- */
-function withMonitor(string $slug, callable $callback, ?MonitorConfig $monitorConfig = null)
-{
-    $checkInId = JasnitaSdk::getCurrentHub()->captureCheckIn($slug, CheckInStatus::inProgress(), null, $monitorConfig);
-
-    $status = CheckInStatus::ok();
-    $duration = 0;
-
-    try {
-        $start = microtime(true);
-        $result = $callback();
-        $duration = microtime(true) - $start;
-
-        return $result;
-    } catch (\Throwable $e) {
-        $status = CheckInStatus::error();
-
-        throw $e;
-    } finally {
-        JasnitaSdk::getCurrentHub()->captureCheckIn($slug, $status, $duration, $monitorConfig, $checkInId);
-    }
-}
-
-/**
  * Records a new breadcrumb which will be attached to future events. They
  * will be added to subsequent events to provide more context on user's
  * actions prior to an error or crash.
  *
- * @param Breadcrumb|string    $category  The category of the breadcrumb, can be a Breadcrumb instance as well (in which case the other parameters are ignored)
- * @param string|null          $message   Breadcrumb message
- * @param array<string, mixed> $metadata  Additional information about the breadcrumb
- * @param string               $level     The error level of the breadcrumb
- * @param string               $type      The type of the breadcrumb
- * @param float|null           $timestamp Optional timestamp of the breadcrumb
+ * @param Breadcrumb $breadcrumb The breadcrumb to record
  */
-function addBreadcrumb($category, ?string $message = null, array $metadata = [], string $level = Breadcrumb::LEVEL_INFO, string $type = Breadcrumb::TYPE_DEFAULT, ?float $timestamp = null): void
+function addBreadcrumb(Breadcrumb $breadcrumb): void
 {
-    JasnitaSdk::getCurrentHub()->addBreadcrumb(
-        $category instanceof Breadcrumb
-            ? $category
-            : new Breadcrumb($level, $type, $category, $message, $metadata, $timestamp)
-    );
+    JasnitaSdk::getCurrentHub()->addBreadcrumb($breadcrumb);
 }
 
 /**
@@ -211,67 +109,17 @@ function configureScope(callable $callback): void
  *
  * @param callable $callback The callback to be executed
  *
- * @phpstan-template T
- *
- * @phpstan-param callable(Scope): T $callback
- *
  * @return mixed|void The callback's return value, upon successful execution
  *
- * @phpstan-return T
+ * @psalm-template T
+ *
+ * @psalm-param callable(Scope): T $callback
+ *
+ * @psalm-return T
  */
 function withScope(callable $callback)
 {
     return JasnitaSdk::getCurrentHub()->withScope($callback);
-}
-
-/**
- * Starts an isolated context for the current logical execution.
- *
- * A provided hub is used as-is, allowing runtimes with their own HubInterface
- * implementation to manage hub isolation. When no hub is provided, the SDK
- * creates an isolated hub from the baseline.
- *
- * If a context is already active, this function is a no-op and the provided hub
- * is ignored. Use JasnitaSdk::setCurrentHub() to replace the active context's hub.
- *
- * @param HubInterface|null $hub The hub to use for the new context
- */
-function startContext(?HubInterface $hub = null): void
-{
-    JasnitaSdk::startContext($hub);
-}
-
-/**
- * Ends and flushes the active context for the current logical execution.
- *
- * When no context is active this is a no-op.
- *
- * @param int|null $timeout The maximum number of seconds to wait while flushing the client transport
- */
-function endContext(?int $timeout = null): void
-{
-    JasnitaSdk::endContext($timeout);
-}
-
-/**
- * Executes the given callback within an isolated context.
- *
- * If a context is already active for the current logical execution, it is reused.
- *
- * @param callable $callback The callback to execute
- * @param int|null $timeout  The maximum number of seconds to wait while flushing the client transport
- *
- * @phpstan-template T
- *
- * @phpstan-param callable(): T $callback
- *
- * @return mixed
- *
- * @phpstan-return T
- */
-function withContext(callable $callback, ?int $timeout = null)
-{
-    return JasnitaSdk::withContext($callback, $timeout);
 }
 
 /**
@@ -290,7 +138,7 @@ function withContext(callable $callback, ?int $timeout = null)
  * Jasnita.
  *
  * @param TransactionContext   $context               Properties of the new transaction
- * @param array<string, mixed> $customSamplingContext Additional context that will be passed to the {@see Tracing\SamplingContext}
+ * @param array<string, mixed> $customSamplingContext Additional context that will be passed to the {@see \Jasnita\Monitor\Sdk\Tracing\SamplingContext}
  */
 function startTransaction(TransactionContext $context, array $customSamplingContext = []): Transaction
 {
@@ -299,6 +147,7 @@ function startTransaction(TransactionContext $context, array $customSamplingCont
 
 /**
  * Execute the given callable while wrapping it in a span added as a child to the current transaction and active span.
+ *
  * If there is no transaction active this is a no-op and the scope passed to the trace callable will be unused.
  *
  * @template T
@@ -310,14 +159,13 @@ function startTransaction(TransactionContext $context, array $customSamplingCont
  */
 function trace(callable $trace, SpanContext $context)
 {
-    return JasnitaSdk::getCurrentHub()->withScope(static function (Scope $scope) use ($context, $trace) {
+    return JasnitaSdk::getCurrentHub()->withScope(function (Scope $scope) use ($context, $trace) {
         $parentSpan = $scope->getSpan();
-        $span = null;
 
-        // If there is a span set on the scope and it's sampled there is an active transaction.
-        // If that is the case we create the child span and set it on the scope.
-        // Otherwise we only execute the callable without creating a span.
-        if ($parentSpan !== null && $parentSpan->getSampled()) {
+        // If there's a span set on the scope there is a transaction
+        // active currently. If that is the case we create a child span
+        // and set it on the scope. Otherwise we only execute the callable
+        if (null !== $parentSpan) {
             $span = $parentSpan->startChild($context);
 
             $scope->setSpan($span);
@@ -326,7 +174,7 @@ function trace(callable $trace, SpanContext $context)
         try {
             return $trace($scope);
         } finally {
-            if ($span !== null) {
+            if (isset($span)) {
                 $span->finish();
 
                 $scope->setSpan($parentSpan);
@@ -336,32 +184,7 @@ function trace(callable $trace, SpanContext $context)
 }
 
 /**
- * Returns the OTLP traces endpoint configured for the current client.
- */
-function getOtlpTracesEndpointUrl(): ?string
-{
-    $hub = JasnitaSdk::getCurrentHub();
-    $client = $hub->getClient();
-
-    if ($client === null) {
-        return null;
-    }
-
-    $integration = $hub->getIntegration(OTLPIntegration::class);
-    if ($integration instanceof OTLPIntegration && $integration->getCollectorUrl() !== null) {
-        return $integration->getCollectorUrl();
-    }
-
-    $dsn = $client->getOptions()->getDsn();
-    if ($dsn === null) {
-        return null;
-    }
-
-    return $dsn->getOtlpTracesEndpointUrl();
-}
-
-/**
- * Creates the current Jasnita traceparent string, to be used as a HTTP header value
+ * Creates the current traceparent string, to be used as a HTTP header value
  * or HTML meta tag value.
  * This function is context aware, as in it either returns the traceparent based
  * on the current span, or the scope's propagation context.
@@ -371,40 +194,23 @@ function getTraceparent(): string
     $hub = JasnitaSdk::getCurrentHub();
     $client = $hub->getClient();
 
-    if ($client !== null) {
+    if (null !== $client) {
         $options = $client->getOptions();
 
-        if ($options->isTracingEnabled()) {
+        if (null !== $options && $options->isTracingEnabled()) {
             $span = JasnitaSdk::getCurrentHub()->getSpan();
-            if ($span !== null) {
+            if (null !== $span) {
                 return $span->toTraceparent();
             }
         }
     }
 
     $traceParent = '';
-    $hub->configureScope(static function (Scope $scope) use (&$traceParent) {
-        if ($scope->hasExternalPropagationContext()) {
-            return;
-        }
-
+    $hub->configureScope(function (Scope $scope) use (&$traceParent) {
         $traceParent = $scope->getPropagationContext()->toTraceparent();
     });
 
     return $traceParent;
-}
-
-/**
- * Creates the current W3C traceparent string, to be used as a HTTP header value
- * or HTML meta tag value.
- * This function is context aware, as in it either returns the traceparent based
- * on the current span, or the scope's propagation context.
- *
- * @deprecated since version 4.12. To be removed in version 5.0.
- */
-function getW3CTraceparent(): string
-{
-    return '';
 }
 
 /**
@@ -418,23 +224,19 @@ function getBaggage(): string
     $hub = JasnitaSdk::getCurrentHub();
     $client = $hub->getClient();
 
-    if ($client !== null) {
+    if (null !== $client) {
         $options = $client->getOptions();
 
-        if ($options->isTracingEnabled()) {
+        if (null !== $options && $options->isTracingEnabled()) {
             $span = JasnitaSdk::getCurrentHub()->getSpan();
-            if ($span !== null) {
+            if (null !== $span) {
                 return $span->toBaggage();
             }
         }
     }
 
     $baggage = '';
-    $hub->configureScope(static function (Scope $scope) use (&$baggage) {
-        if ($scope->hasExternalPropagationContext()) {
-            return;
-        }
-
+    $hub->configureScope(function (Scope $scope) use (&$baggage) {
         $baggage = $scope->getPropagationContext()->toBaggage();
     });
 
@@ -449,96 +251,11 @@ function getBaggage(): string
  */
 function continueTrace(string $jasnitaTrace, string $baggage): TransactionContext
 {
-    // With the new `strict_trace_continuation`, it's possible that we start two new
-    // traces if we parse the TransactionContext and PropagationContext from the same
-    // headers. To make sure the trace is the same, we will create one transaction
-    // context from headers and copy relevant information over.
-    $transactionContext = TransactionContext::fromHeaders($jasnitaTrace, $baggage);
-    $propagationContext = PropagationContext::fromDefaults();
-    $metadata = $transactionContext->getMetadata();
-
-    $traceId = $transactionContext->getTraceId() ?? $propagationContext->getTraceId();
-    $transactionContext->setTraceId($traceId);
-    $propagationContext->setTraceId($traceId);
-
-    $propagationContext->setParentSpanId($transactionContext->getParentSpanId());
-    $propagationContext->setSampleRand($metadata->getSampleRand());
-
-    $dynamicSamplingContext = $metadata->getDynamicSamplingContext();
-    if ($dynamicSamplingContext !== null) {
-        $propagationContext->setDynamicSamplingContext($dynamicSamplingContext);
-    }
-
     $hub = JasnitaSdk::getCurrentHub();
-    $hub->configureScope(static function (Scope $scope) use ($propagationContext): void {
+    $hub->configureScope(function (Scope $scope) use ($jasnitaTrace, $baggage) {
+        $propagationContext = PropagationContext::fromHeaders($jasnitaTrace, $baggage);
         $scope->setPropagationContext($propagationContext);
     });
 
-    return $transactionContext;
-}
-
-/**
- * Get the Jasnita Logs client.
- */
-function logger(): Logs
-{
-    return Logs::getInstance();
-}
-
-/**
- * @deprecated use `traceMetrics` instead
- */
-function metrics(): Metrics
-{
-    return Metrics::getInstance();
-}
-
-function traceMetrics(): TraceMetrics
-{
-    return TraceMetrics::getInstance();
-}
-
-/**
- * @deprecated use `traceMetrics` instead
- */
-function trace_metrics(): TraceMetrics
-{
-    return TraceMetrics::getInstance();
-}
-
-/**
- * Adds a feature flag evaluation to the current scope.
- * When invoked repeatedly for the same name, the most recent value is used.
- */
-function addFeatureFlag(string $name, bool $result): void
-{
-    JasnitaSdk::getCurrentHub()->configureScope(static function (Scope $scope) use ($name, $result) {
-        $scope->addFeatureFlag($name, $result);
-    });
-}
-
-/**
- * Adds an attachment to the current scope. For large attachments, it might be helpful
- * to use the SDK Sidecar Transport: (dokumentasi hulu)
- */
-function addAttachment(Attachment $attachment): void
-{
-    JasnitaSdk::getCurrentHub()->configureScope(static function (Scope $scope) use ($attachment) {
-        $scope->addAttachment($attachment);
-    });
-}
-
-/**
- * Flushes all buffered telemetry data.
- *
- * This is a convenience facade that forwards the flush operation to all
- * internally managed components.
- *
- * Calling this method is equivalent to invoking `flush()` on each component
- * individually. It does not change flushing behavior, improve performance,
- * or reduce the number of network requests.
- */
-function flush(): void
-{
-    JasnitaSdk::flush();
+    return TransactionContext::fromHeaders($jasnitaTrace, $baggage);
 }

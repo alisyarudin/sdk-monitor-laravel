@@ -22,7 +22,6 @@ final class PHPVersion
      */
     public static function parseVersion(string $version = \PHP_VERSION): string
     {
-        $matches = [];
         if (!preg_match(self::VERSION_PARSING_REGEX, $version, $matches)) {
             return $version;
         }

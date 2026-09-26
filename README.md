@@ -2,7 +2,9 @@
 
 Agent **Jasnita Monitor** untuk Laravel: exception, performa request/queue, dan breadcrumb (query, log, HTTP client) dikirim ke server Jasnita Monitor.
 
-- Laravel 6–12, PHP 7.2+ (diuji: Laravel 6 + PHP 7.4, Laravel 10 & 12 + PHP 8.2)
+- **Jalur 1.x (branch `1.x`): Laravel 5.0–9, PHP 7.2+** — untuk aplikasi lama.
+  Laravel 6 ke atas sebaiknya memakai v2 (branch `main`). Composer memilih
+  jalur yang cocok otomatis: `composer require jasnita/monitor-laravel`.
 - Pasang tanpa mengubah berkas aplikasi (Laravel 8+)
 - Password, token, cookie disaring di server walaupun klien lupa mengatur apa pun
 
@@ -35,24 +37,24 @@ composer require jasnita/monitor-laravel:^1.0
 Setelah paket terdaftar di Packagist, baris `repositories` itu boleh dihapus dari `composer.json`.
 </details>
 
-Sudah. Pada Laravel 8 ke atas pelapor exception terpasang otomatis — tidak ada yang perlu diubah di `bootstrap/app.php` maupun `Handler.php`.
+Pada Laravel 8 ke atas pelapor exception terpasang otomatis — tidak ada yang perlu diubah di `bootstrap/app.php` maupun `Handler.php`.
 
-<details>
-<summary>Laravel 6 / 7</summary>
+<details open>
+<summary>Laravel 5.x / 6 / 7 — wajib satu baris di Handler</summary>
 
-Belum punya `reportable()`, jadi tambahkan di `app/Exceptions/Handler.php`
-(Laravel 6 memakai `Exception`, Laravel 7 `Throwable` — ikuti tanda tangan
-method `report()` yang sudah ada di berkas Anda):
+Versi ini belum punya `reportable()`, jadi tambahkan di `app/Exceptions/Handler.php`:
 
 ```php
 public function report(Exception $exception)   // Laravel 7: Throwable $exception
 {
-    \Jasnita\Monitor\Laravel\Integration::captureUnhandledException($exception);
+    if ($this->shouldReport($exception)) {
+        \Jasnita\Monitor\Facades\Monitor::captureException($exception);
+    }
     parent::report($exception);
 }
 ```
 
-dan set `JASNITA_MONITOR_AUTO_REPORT=false`.
+dan set `JASNITA_MONITOR_AUTO_REPORT=false` di `.env`.
 </details>
 
 ## Konfigurasi (.env)

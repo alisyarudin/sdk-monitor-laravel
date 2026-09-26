@@ -16,11 +16,6 @@ use Jasnita\Monitor\Sdk\State\Scope;
  * This Monolog handler logs every message to a Jasnita's server using the given
  * hub instance.
  *
- * @deprecated since version 4.24. To be removed in version 5.0. Use {@see LogsHandler}
- *             for Jasnita logs, {@see ExceptionToJasnitaIssueHandler} to send Monolog exceptions
- *             to Jasnita issues, and {@see LogToJasnitaIssueHandler}
- *             to send Monolog log messages to Jasnita issues.
- *
  * @author Stefano Arlandini <sarlandini@alice.it>
  */
 final class Handler extends AbstractProcessingHandler
@@ -60,7 +55,7 @@ final class Handler extends AbstractProcessingHandler
         $event = Event::createEvent();
         $event->setLevel(self::getSeverityFromLevel($record['level']));
         $event->setMessage($record['message']);
-        $event->setLogger(\sprintf('monolog.%s', $record['channel']));
+        $event->setLogger(sprintf('monolog.%s', $record['channel']));
 
         $hint = new EventHint();
 
@@ -74,13 +69,13 @@ final class Handler extends AbstractProcessingHandler
 
             $monologContextData = $this->getMonologContextData($record['context']);
 
-            if ($monologContextData !== []) {
+            if ([] !== $monologContextData) {
                 $scope->setExtra('monolog.context', $monologContextData);
             }
 
             $monologExtraData = $this->getMonologExtraData($record['extra']);
 
-            if ($monologExtraData !== []) {
+            if ([] !== $monologExtraData) {
                 $scope->setExtra('monolog.extra', $monologExtraData);
             }
 
@@ -103,7 +98,7 @@ final class Handler extends AbstractProcessingHandler
 
         foreach ($context as $key => $value) {
             // We skip the `exception` field because it goes in its own context
-            if ($key === self::CONTEXT_EXCEPTION_KEY) {
+            if (self::CONTEXT_EXCEPTION_KEY === $key) {
                 continue;
             }
 

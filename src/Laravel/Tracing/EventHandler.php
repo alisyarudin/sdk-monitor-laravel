@@ -3,21 +3,23 @@
 namespace Jasnita\Monitor\Laravel\Tracing;
 
 use Exception;
+use Illuminate\Contracts\Container\BindingResolutionException;
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Events as DatabaseEvents;
-use Illuminate\Routing\Events as RoutingEvents;
+use Illuminate\Queue\Events as QueueEvents;
+use Illuminate\Queue\Queue;
+use Illuminate\Queue\QueueManager;
 use RuntimeException;
-use Jasnita\Monitor\Laravel\Features\Concerns\ResolvesEventOrigin;
 use Jasnita\Monitor\Laravel\Integration;
 use Jasnita\Monitor\Sdk\JasnitaSdk;
-use Jasnita\Monitor\Sdk\Tracing\Span;
 use Jasnita\Monitor\Sdk\Tracing\SpanContext;
 use Jasnita\Monitor\Sdk\Tracing\SpanStatus;
-use Symfony\Component\HttpFoundation\Response;
+use Jasnita\Monitor\Sdk\Tracing\TransactionContext;
 
 class EventHandler
 {
-    use ResolvesEventOrigin;
+    public const QUEUE_PAYLOAD_TRACE_PARENT_DATA = 'jasnita_trace_parent_data';
 
     /**
      * Map event handlers to events.
@@ -25,14 +27,27 @@ class EventHandler
      * @var array
      */
     protected static $eventHandlerMap = [
-        RoutingEvents\RouteMatched::class => 'routeMatched',
-        DatabaseEvents\QueryExecuted::class => 'queryExecuted',
-        RoutingEvents\ResponsePrepared::class => 'responsePrepared',
-        RoutingEvents\PreparingResponse::class => 'responsePreparing',
-        DatabaseEvents\TransactionBeginning::class => 'transactionBeginning',
-        DatabaseEvents\TransactionCommitted::class => 'transactionCommitted',
-        DatabaseEvents\TransactionRolledBack::class => 'transactionRolledBack',
+        'illuminate.query' => 'query',                          // Until Laravel 5.1
+        DatabaseEvents\QueryExecuted::class => 'queryExecuted', // Since Laravel 5.2
     ];
+
+    /**
+     * Map queue event handlers to events.
+     *
+     * @var array
+     */
+    protected static $queueEventHandlerMap = [
+        QueueEvents\JobProcessing::class => 'queueJobProcessing',               // Since Laravel 5.2
+        QueueEvents\JobProcessed::class => 'queueJobProcessed',                 // Since Laravel 5.2
+        QueueEvents\JobExceptionOccurred::class => 'queueJobExceptionOccurred', // Since Laravel 5.2
+    ];
+
+    /**
+     * The Laravel container.
+     *
+     * @var \Illuminate\Contracts\Container\Container
+     */
+    private $container;
 
     /**
      * Indicates if we should we add SQL queries as spans.
@@ -42,25 +57,11 @@ class EventHandler
     private $traceSqlQueries;
 
     /**
-     * Indicates if we should add query bindings to query spans.
-     *
-     * @var bool
-     */
-    private $traceSqlBindings;
-
-    /**
      * Indicates if we should we add SQL query origin data to query spans.
      *
      * @var bool
      */
-    private $traceSqlQueryOrigin;
-
-    /**
-     * The threshold in milliseconds to consider a SQL query origin.
-     *
-     * @var int
-     */
-    private $traceSqlQueryOriginTreshHoldMs;
+    private $traceSqlQueryOrigins;
 
     /**
      * Indicates if we should trace queue job spans.
@@ -77,28 +78,40 @@ class EventHandler
     private $traceQueueJobsAsTransactions;
 
     /**
-     * Hold the stack of parent spans that need to be put back on the scope.
+     * Holds a reference to the parent queue job span.
      *
-     * @var array<int, Span|null>
+     * @var \Jasnita\Monitor\Sdk\Tracing\Span|null
      */
-    private $parentSpanStack = [];
+    private $parentQueueJobSpan;
 
     /**
-     * Hold the stack of current spans that need to be finished still.
+     * Holds a reference to the current queue job span or transaction.
      *
-     * @var array<int, Span|null>
+     * @var \Jasnita\Monitor\Sdk\Tracing\Transaction|\Jasnita\Monitor\Sdk\Tracing\Span|null
      */
-    private $currentSpanStack = [];
+    private $currentQueueJobSpan;
+
+    /**
+     * The backtrace helper.
+     *
+     * @var \Jasnita\Monitor\Laravel\Tracing\BacktraceHelper
+     */
+    private $backtraceHelper;
 
     /**
      * EventHandler constructor.
+     *
+     * @param \Illuminate\Contracts\Container\Container $container
+     * @param \Jasnita\Monitor\Laravel\Tracing\BacktraceHelper   $backtraceHelper
+     * @param array                                     $config
      */
-    public function __construct(array $config)
+    public function __construct(Container $container, BacktraceHelper $backtraceHelper, array $config)
     {
+        $this->container = $container;
+        $this->backtraceHelper = $backtraceHelper;
+
         $this->traceSqlQueries = ($config['sql_queries'] ?? true) === true;
-        $this->traceSqlBindings = ($config['sql_bindings'] ?? false) === true;
-        $this->traceSqlQueryOrigin = ($config['sql_origin'] ?? true) === true;
-        $this->traceSqlQueryOriginTreshHoldMs = $config['sql_origin_threshold_ms'] ?? 100;
+        $this->traceSqlQueryOrigins = ($config['sql_origin'] ?? true) === true;
 
         $this->traceQueueJobs = ($config['queue_jobs'] ?? false) === true;
         $this->traceQueueJobsAsTransactions = ($config['queue_job_transactions'] ?? false) === true;
@@ -106,19 +119,59 @@ class EventHandler
 
     /**
      * Attach all event handlers.
-     *
-     * @uses self::routeMatchedHandler()
-     * @uses self::queryExecutedHandler()
-     * @uses self::responsePreparedHandler()
-     * @uses self::responsePreparingHandler()
-     * @uses self::transactionBeginningHandler()
-     * @uses self::transactionCommittedHandler()
-     * @uses self::transactionRolledBackHandler()
      */
-    public function subscribe(Dispatcher $dispatcher): void
+    public function subscribe(): void
     {
-        foreach (static::$eventHandlerMap as $eventName => $handler) {
-            $dispatcher->listen($eventName, [$this, $handler]);
+        try {
+            /** @var \Illuminate\Contracts\Events\Dispatcher $dispatcher */
+            $dispatcher = $this->container->make(Dispatcher::class);
+
+            foreach (static::$eventHandlerMap as $eventName => $handler) {
+                $dispatcher->listen($eventName, [$this, $handler]);
+            }
+        } catch (BindingResolutionException $e) {
+            // If we cannot resolve the event dispatcher we also cannot listen to events
+        }
+    }
+
+    /**
+     * Attach all queue event handlers.
+     *
+     * @param \Illuminate\Queue\QueueManager $queue
+     */
+    public function subscribeQueueEvents(QueueManager $queue): void
+    {
+        // If both types of queue job tracing is disabled also do not register the events
+        if (!$this->traceQueueJobs && !$this->traceQueueJobsAsTransactions) {
+            return;
+        }
+
+        // The payload create callback was introduced in Laravel 5.7 so we need to guard against older versions
+        if (method_exists(Queue::class, 'createPayloadUsing')) {
+            Queue::createPayloadUsing(static function (?string $connection, ?string $queue, ?array $payload): ?array {
+                $currentSpan = Integration::currentTracingSpan();
+
+                if ($currentSpan !== null && $payload !== null) {
+                    $payload[self::QUEUE_PAYLOAD_TRACE_PARENT_DATA] = $currentSpan->toTraceparent();
+                }
+
+                return $payload;
+            });
+        }
+
+        $queue->looping(function () {
+            $this->afterQueuedJob();
+        });
+
+        try {
+            /** @var \Illuminate\Contracts\Events\Dispatcher $dispatcher */
+            $dispatcher = $this->container->make(Dispatcher::class);
+
+            foreach (static::$queueEventHandlerMap as $eventName => $handler) {
+                $dispatcher->listen($eventName, [$this, $handler]);
+            }
+        } catch (BindingResolutionException $e) {
+            // If we cannot resolve the event dispatcher we also cannot listen to events
         }
     }
 
@@ -126,9 +179,9 @@ class EventHandler
      * Pass through the event and capture any errors.
      *
      * @param string $method
-     * @param array $arguments
+     * @param array  $arguments
      */
-    public function __call(string $method, array $arguments)
+    public function __call($method, $arguments)
     {
         $handlerMethod = "{$method}Handler";
 
@@ -137,163 +190,190 @@ class EventHandler
         }
 
         try {
-            $this->{$handlerMethod}(...$arguments);
-        } catch (Exception $e) {
-            // Ignore to prevent bubbling up errors in the SDK
+            call_user_func_array([$this, $handlerMethod], $arguments);
+        } catch (Exception $exception) {
+            // Ignore
         }
     }
 
-    protected function routeMatchedHandler(RoutingEvents\RouteMatched $match): void
+    /**
+     * Until Laravel 5.1
+     *
+     * @param string $query
+     * @param array  $bindings
+     * @param int    $time
+     * @param string $connectionName
+     */
+    protected function queryHandler($query, $bindings, $time, $connectionName): void
     {
-        $transaction = JasnitaSdk::getCurrentHub()->getTransaction();
-
-        if ($transaction === null) {
-            return;
-        }
-
-        [$transactionName, $transactionSource] = Integration::extractNameAndSourceForRoute($match->route);
-
-        $transaction->setName($transactionName);
-        $transaction->getMetadata()->setSource($transactionSource);
+        $this->recordQuerySpan($query, $time);
     }
 
+    /**
+     * Since Laravel 5.2
+     *
+     * @param \Illuminate\Database\Events\QueryExecuted $query
+     */
     protected function queryExecutedHandler(DatabaseEvents\QueryExecuted $query): void
+    {
+        $this->recordQuerySpan($query->sql, $query->time);
+    }
+
+    /**
+     * Helper to add an query breadcrumb.
+     *
+     * @param string     $query
+     * @param float|null $time
+     */
+    private function recordQuerySpan($query, $time): void
     {
         if (!$this->traceSqlQueries) {
             return;
         }
 
-        $parentSpan = JasnitaSdk::getCurrentHub()->getSpan();
+        $parentSpan = Integration::currentTracingSpan();
 
-        // If there is no sampled span there is no need to handle the event
-        if ($parentSpan === null || !$parentSpan->getSampled()) {
+        // If there is no tracing span active there is no need to handle the event
+        if ($parentSpan === null) {
             return;
         }
 
-        $context = SpanContext::make()
-            ->setOp('db.sql.query')
-            ->setData([
-                'db.name' => $query->connection->getDatabaseName(),
-                'db.system' => $query->connection->getDriverName(),
-                'server.address' => $query->connection->getConfig('host'),
-                'server.port' => $query->connection->getConfig('port'),
-            ])
-            ->setOrigin('auto.db')
-            ->setDescription($query->sql)
-            ->setStartTimestamp(microtime(true) - $query->time / 1000);
+        $context = new SpanContext();
+        $context->setOp('db.sql.query');
+        $context->setDescription($query);
+        $context->setStartTimestamp(microtime(true) - $time / 1000);
+        $context->setEndTimestamp($context->getStartTimestamp() + $time / 1000);
 
-        $context->setEndTimestamp($context->getStartTimestamp() + $query->time / 1000);
-
-        if ($this->traceSqlBindings) {
-            $context->setData(array_merge($context->getData(), [
-                'db.sql.bindings' => $query->bindings
-            ]));
-        }
-
-        if ($this->traceSqlQueryOrigin && $query->time >= $this->traceSqlQueryOriginTreshHoldMs) {
-            $queryOrigin = $this->resolveEventOrigin();
+        if ($this->traceSqlQueryOrigins) {
+            $queryOrigin = $this->resolveQueryOriginFromBacktrace($context);
 
             if ($queryOrigin !== null) {
-                $context->setData(array_merge($context->getData(), $queryOrigin));
+                $context->setData(['sql.origin' => $queryOrigin]);
             }
         }
 
         $parentSpan->startChild($context);
     }
 
-    protected function responsePreparedHandler(RoutingEvents\ResponsePrepared $event): void
+    /**
+     * Try to find the origin of the SQL query that was just executed.
+     *
+     * @return string|null
+     */
+    private function resolveQueryOriginFromBacktrace(): ?string
     {
-        $span = $this->popSpan();
+        $firstAppFrame = $this->backtraceHelper->findFirstInAppFrameForBacktrace(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS));
 
-        if ($span !== null) {
-            $span->finish();
-        }
-    }
-
-    protected function responsePreparingHandler(RoutingEvents\PreparingResponse $event): void
-    {
-        // If the response is already a Response object there is no need to handle the event anymore
-        // since there isn't going to be any real work going on, the response is already as prepared
-        // as it can be. So we ignore the event to prevent loggin a very short empty duplicated span
-        if ($event->response instanceof Response) {
-            return;
-        }
-
-        $parentSpan = JasnitaSdk::getCurrentHub()->getSpan();
-
-        // If there is no sampled span there is no need to handle the event
-        if ($parentSpan === null || !$parentSpan->getSampled()) {
-            return;
-        }
-
-        $this->pushSpan(
-            $parentSpan->startChild(
-                SpanContext::make()
-                    ->setOp('http.route.response')
-                    ->setOrigin('auto.http.server')
-            )
-        );
-    }
-
-    protected function transactionBeginningHandler(DatabaseEvents\TransactionBeginning $event): void
-    {
-        $parentSpan = JasnitaSdk::getCurrentHub()->getSpan();
-
-        // If there is no sampled span there is no need to handle the event
-        if ($parentSpan === null || !$parentSpan->getSampled()) {
-            return;
-        }
-
-        $this->pushSpan(
-            $parentSpan->startChild(
-                SpanContext::make()
-                    ->setOp('db.transaction')
-                    ->setOrigin('auto.db')
-            )
-        );
-    }
-
-    protected function transactionCommittedHandler(DatabaseEvents\TransactionCommitted $event): void
-    {
-        $span = $this->popSpan();
-
-        if ($span !== null) {
-            $span->setStatus(SpanStatus::ok());
-            $span->finish();
-        }
-    }
-
-    protected function transactionRolledBackHandler(DatabaseEvents\TransactionRolledBack $event): void
-    {
-        $span = $this->popSpan();
-
-        if ($span !== null) {
-            $span->setStatus(SpanStatus::internalError());
-            $span->finish();
-        }
-    }
-
-    private function pushSpan(Span $span): void
-    {
-        $hub = JasnitaSdk::getCurrentHub();
-
-        $this->parentSpanStack[] = $hub->getSpan();
-
-        $hub->setSpan($span);
-
-        $this->currentSpanStack[] = $span;
-    }
-
-    private function popSpan(): ?Span
-    {
-        if (count($this->currentSpanStack) === 0) {
+        if ($firstAppFrame === null) {
             return null;
         }
 
-        $parent = array_pop($this->parentSpanStack);
+        $filePath = $this->backtraceHelper->getOriginalViewPathForFrameOfCompiledViewPath($firstAppFrame) ?? $firstAppFrame->getFile();
 
-        JasnitaSdk::getCurrentHub()->setSpan($parent);
+        return "{$filePath}:{$firstAppFrame->getLine()}";
+    }
 
-        return array_pop($this->currentSpanStack);
+    /*
+     * Since Laravel 5.2
+     *
+     * @param \Illuminate\Queue\Events\JobProcessing $event
+     */
+    protected function queueJobProcessingHandler(QueueEvents\JobProcessing $event)
+    {
+        $parentSpan = Integration::currentTracingSpan();
+
+        // If there is no tracing span active and we don't trace jobs as transactions there is no need to handle the event
+        if ($parentSpan === null && !$this->traceQueueJobsAsTransactions) {
+            return;
+        }
+
+        // If there is a parent span we can record that job as a child unless configured to not do so
+        if ($parentSpan !== null && !$this->traceQueueJobs) {
+            return;
+        }
+
+        if ($parentSpan === null) {
+            $traceParent = $event->job->payload()[self::QUEUE_PAYLOAD_TRACE_PARENT_DATA] ?? null;
+
+            $context = $traceParent === null
+                ? new TransactionContext
+                : TransactionContext::fromJasnitaTrace($traceParent);
+
+            // If the parent transaction was not sampled we also stop the queue job from being recorded
+            if ($context->getParentSampled() === false) {
+                return;
+            }
+        } else {
+            $context = new SpanContext;
+        }
+
+        $job = [
+            'job' => $event->job->getName(),
+            'queue' => $event->job->getQueue(),
+            'attempts' => $event->job->attempts(),
+            'connection' => $event->connectionName,
+        ];
+
+        // Resolve name exists only from Laravel 5.3+
+        $resolvedJobName = method_exists($event->job, 'resolveName')
+            ? $event->job->resolveName()
+            : null;
+
+        if ($resolvedJobName !== null) {
+            $job['resolved'] = $resolvedJobName;
+        }
+
+        if ($context instanceof TransactionContext) {
+            $context->setName($resolvedJobName ?? $event->job->getName());
+        }
+
+        $context->setOp('queue.process');
+        $context->setData($job);
+        $context->setStartTimestamp(microtime(true));
+
+        // When the parent span is null we start a new transaction otherwise we start a child of the current span
+        if ($parentSpan === null) {
+            $this->currentQueueJobSpan = JasnitaSdk::getCurrentHub()->startTransaction($context);
+        } else {
+            $this->currentQueueJobSpan = $parentSpan->startChild($context);
+        }
+
+        $this->parentQueueJobSpan = $parentSpan;
+
+        JasnitaSdk::getCurrentHub()->setSpan($this->currentQueueJobSpan);
+    }
+
+    /**
+     * Since Laravel 5.2
+     *
+     * @param \Illuminate\Queue\Events\JobExceptionOccurred $event
+     */
+    protected function queueJobExceptionOccurredHandler(QueueEvents\JobExceptionOccurred $event)
+    {
+        $this->afterQueuedJob(SpanStatus::internalError());
+    }
+
+    /**
+     * Since Laravel 5.2
+     *
+     * @param \Illuminate\Queue\Events\JobProcessed $event
+     */
+    protected function queueJobProcessedHandler(QueueEvents\JobProcessed $event)
+    {
+        $this->afterQueuedJob(SpanStatus::ok());
+    }
+
+    private function afterQueuedJob(?SpanStatus $status = null): void
+    {
+        if ($this->currentQueueJobSpan === null) {
+            return;
+        }
+
+        $this->currentQueueJobSpan->setStatus($status);
+        $this->currentQueueJobSpan->finish();
+        $this->currentQueueJobSpan = null;
+
+        JasnitaSdk::getCurrentHub()->setSpan($this->parentQueueJobSpan);
+        $this->parentQueueJobSpan = null;
     }
 }

@@ -5,5 +5,5 @@ namespace Jasnita\Monitor\Laravel;
 final class Version
 {
     public const SDK_IDENTIFIER = 'jasnita.monitor.laravel';
-    public const SDK_VERSION = '4.28.0';
+    public const SDK_VERSION = '2.14.2';
 }

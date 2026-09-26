@@ -1,0 +1,128 @@
+<?php // Dihasilkan tools/rebrand.php dari hulu sdk-php — jangan diubah manual.
+
+declare(strict_types=1);
+
+namespace Jasnita\Monitor\Sdk\Tests\Integration;
+
+use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\TestCase;
+use Jasnita\Monitor\Sdk\ClientInterface;
+use Jasnita\Monitor\Sdk\Event;
+use Jasnita\Monitor\Sdk\ExceptionDataBag;
+use Jasnita\Monitor\Sdk\Integration\IgnoreErrorsIntegration;
+use Jasnita\Monitor\Sdk\JasnitaSdk;
+use Jasnita\Monitor\Sdk\State\Scope;
+use function Jasnita\Monitor\Sdk\withScope;
+
+final class IgnoreErrorsIntegrationTest extends TestCase
+{
+    /**
+     * @dataProvider invokeDataProvider
+     */
+    public function testInvoke(Event $event, bool $isIntegrationEnabled, array $integrationOptions, bool $expectedEventToBeDropped): void
+    {
+        $integration = new IgnoreErrorsIntegration($integrationOptions);
+        $integration->setupOnce();
+
+        /** @var ClientInterface&MockObject $client */
+        $client = $this->createMock(ClientInterface::class);
+        $client->expects($this->once())
+            ->method('getIntegration')
+            ->willReturn($isIntegrationEnabled ? $integration : null);
+
+        JasnitaSdk::getCurrentHub()->bindClient($client);
+
+        withScope(function (Scope $scope) use ($event, $expectedEventToBeDropped): void {
+            $event = $scope->applyToEvent($event);
+
+            if ($expectedEventToBeDropped) {
+                $this->assertNull($event);
+            } else {
+                $this->assertNotNull($event);
+            }
+        });
+    }
+
+    public static function invokeDataProvider(): \Generator
+    {
+        $event = Event::createEvent();
+        $event->setExceptions([new ExceptionDataBag(new \RuntimeException())]);
+
+        yield 'Integration disabled' => [
+            Event::createEvent(),
+            false,
+            [
+                'ignore_exceptions' => [],
+            ],
+            false,
+        ];
+
+        $event = Event::createEvent();
+        $event->setExceptions([new ExceptionDataBag(new \RuntimeException())]);
+
+        yield 'No exceptions to check' => [
+            Event::createEvent(),
+            true,
+            [
+                'ignore_exceptions' => [],
+            ],
+            false,
+        ];
+
+        $event = Event::createEvent();
+        $event->setExceptions([new ExceptionDataBag(new \RuntimeException())]);
+
+        yield 'The exception is matching exactly the "ignore_exceptions" option' => [
+            $event,
+            true,
+            [
+                'ignore_exceptions' => [
+                    \RuntimeException::class,
+                ],
+            ],
+            true,
+        ];
+
+        $event = Event::createEvent();
+        $event->setExceptions([new ExceptionDataBag(new \RuntimeException())]);
+
+        yield 'The exception is matching the "ignore_exceptions" option' => [
+            $event,
+            true,
+            [
+                'ignore_exceptions' => [
+                    \Exception::class,
+                ],
+            ],
+            true,
+        ];
+
+        $event = Event::createEvent();
+        $event->setTags(['route' => 'foo']);
+
+        yield 'The tag is matching the "ignore_tags" option' => [
+            $event,
+            true,
+            [
+                'ignore_tags' => [
+                    'route' => 'foo',
+                ],
+            ],
+            true,
+        ];
+
+        $event = Event::createEvent();
+        $event->setTags(['route' => 'bar']);
+
+        yield 'The tag is not matching the "ignore_tags" option' => [
+            $event,
+            true,
+            [
+                'ignore_tags' => [
+                    'route' => 'foo',
+                ],
+            ],
+            false,
+        ];
+    }
+}

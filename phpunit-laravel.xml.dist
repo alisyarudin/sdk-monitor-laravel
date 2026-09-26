@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Test suite hulu untuk integrasi Laravel (src/Laravel), setelah rename. vendor/bin/phpunit -c phpunit-laravel.xml.dist -->
-<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
-         backupGlobals="true"
+<!-- Test suite hulu untuk integrasi Laravel (src/Laravel) jalur 1.x, setelah rename. -->
+<phpunit backupStaticAttributes="false"
          colors="true"
-         bootstrap="tests/Laravel/bootstrap.php"
-         cacheResult="false"
-         beStrictAboutOutputDuringTests="true">
+         convertErrorsToExceptions="true"
+         convertNoticesToExceptions="true"
+         convertWarningsToExceptions="true"
+         processIsolation="false"
+         stopOnFailure="false"
+         bootstrap="tests/Laravel/bootstrap.php">
     <testsuites>
         <testsuite name="laravel">
-            <directory>tests/Laravel/Jasnita/</directory>
-            <exclude>tests/Laravel/Jasnita/Features/AiIntegrationTest.php</exclude>
+            <directory>./tests/Laravel/Jasnita/</directory>
         </testsuite>
     </testsuites>
 </phpunit>

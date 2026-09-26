@@ -14,7 +14,6 @@ use Jasnita\Monitor\Sdk\Integration\EnvironmentIntegration;
 use Jasnita\Monitor\Sdk\JasnitaSdk;
 use Jasnita\Monitor\Sdk\State\Scope;
 use Jasnita\Monitor\Sdk\Util\PHPVersion;
-
 use function Jasnita\Monitor\Sdk\withScope;
 
 final class EnvironmentIntegrationTest extends TestCase
@@ -47,15 +46,14 @@ final class EnvironmentIntegrationTest extends TestCase
             $runtimeContext = $event->getRuntimeContext();
             $osContext = $event->getOsContext();
 
-            if ($expectedRuntimeContext === null) {
+            if (null === $expectedRuntimeContext) {
                 $this->assertNull($runtimeContext);
             } else {
                 $this->assertSame($expectedRuntimeContext->getName(), $runtimeContext->getName());
-                $this->assertSame($expectedRuntimeContext->getSAPI(), $runtimeContext->getSAPI());
                 $this->assertSame($expectedRuntimeContext->getVersion(), $runtimeContext->getVersion());
             }
 
-            if ($expectedOsContext === null) {
+            if (null === $expectedOsContext) {
                 $this->assertNull($expectedOsContext);
             } else {
                 $this->assertSame($expectedOsContext->getName(), $osContext->getName());
@@ -80,15 +78,15 @@ final class EnvironmentIntegrationTest extends TestCase
             true,
             null,
             null,
-            new RuntimeContext('php', PHPVersion::parseVersion(), 'cli'),
+            new RuntimeContext('php', PHPVersion::parseVersion()),
             new OsContext(php_uname('s'), php_uname('r'), php_uname('v'), php_uname('a')),
         ];
 
         yield 'Integration enabled && event context data filled => do nothing' => [
             true,
-            new RuntimeContext('go', '1.15', 'cli'),
+            new RuntimeContext('go', '1.15'),
             new OsContext('iOS', '13.5.1', '17F80', 'Darwin Kernel Version 19.5.0: Tue May 26 20:56:31 PDT 2020; root:xnu-6153.122.2~1/RELEASE_ARM64_T8015'),
-            new RuntimeContext('go', '1.15', 'cli'),
+            new RuntimeContext('go', '1.15'),
             new OsContext('iOS', '13.5.1', '17F80', 'Darwin Kernel Version 19.5.0: Tue May 26 20:56:31 PDT 2020; root:xnu-6153.122.2~1/RELEASE_ARM64_T8015'),
         ];
 
@@ -96,7 +94,7 @@ final class EnvironmentIntegrationTest extends TestCase
             true,
             new RuntimeContext('php'),
             new OsContext('Linux'),
-            new RuntimeContext('php', PHPVersion::parseVersion(), 'cli'),
+            new RuntimeContext('php', PHPVersion::parseVersion()),
             new OsContext('Linux', php_uname('r'), php_uname('v'), php_uname('a')),
         ];
     }

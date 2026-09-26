@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jasnita\Monitor\Sdk\Tests\Monolog;
 
+use DateTimeImmutable;
 use Monolog\Logger;
 use Monolog\LogRecord;
 
@@ -19,15 +20,11 @@ final class RecordFactory
      *
      * @return array<string, mixed>|LogRecord
      */
-    public static function create(string $message, int $level, string $channel, array $context = [], array $extra = [], ?\DateTimeImmutable $datetime = null)
+    public static function create(string $message, int $level, string $channel, array $context, array $extra)
     {
-        if ($datetime === null) {
-            $datetime = new \DateTimeImmutable();
-        }
-
         if (Logger::API >= 3) {
             return new LogRecord(
-                $datetime,
+                new DateTimeImmutable(),
                 $channel,
                 Logger::toMonologLevel($level),
                 $message,
@@ -43,7 +40,7 @@ final class RecordFactory
             'level_name' => Logger::getLevelName($level),
             'channel' => $channel,
             'extra' => $extra,
-            'datetime' => $datetime,
+            'datetime' => new \DateTimeImmutable(),
         ];
     }
 }

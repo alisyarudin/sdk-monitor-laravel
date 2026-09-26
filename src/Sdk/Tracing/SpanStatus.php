@@ -76,20 +76,9 @@ final class SpanStatus implements \Stringable
      * Gets an instance of this enum representing the fact that the server returned
      * 429 Too Many Requests.
      */
-    public static function resourceExhausted(): self
-    {
-        return self::getInstance('resource_exhausted');
-    }
-
-    /**
-     * Gets an instance of this enum representing the fact that the server returned
-     * 429 Too Many Requests.
-     *
-     * @deprecated since version 4.7. To be removed in version 5.0. Use SpanStatus::resourceExhausted() instead.
-     */
     public static function resourceExchausted(): self
     {
-        return self::resourceExhausted();
+        return self::getInstance('resource_exhausted');
     }
 
     /**
@@ -163,23 +152,23 @@ final class SpanStatus implements \Stringable
     public static function createFromHttpStatusCode(int $statusCode): self
     {
         switch (true) {
-            case $statusCode === 401:
+            case 401 === $statusCode:
                 return self::unauthenticated();
-            case $statusCode === 403:
+            case 403 === $statusCode:
                 return self::permissionDenied();
-            case $statusCode === 404:
+            case 404 === $statusCode:
                 return self::notFound();
-            case $statusCode === 409:
+            case 409 === $statusCode:
                 return self::alreadyExists();
-            case $statusCode === 413:
+            case 413 === $statusCode:
                 return self::failedPrecondition();
-            case $statusCode === 429:
-                return self::resourceExhausted();
-            case $statusCode === 501:
+            case 429 === $statusCode:
+                return self::resourceExchausted();
+            case 501 === $statusCode:
                 return self::unimplemented();
-            case $statusCode === 503:
+            case 503 === $statusCode:
                 return self::unavailable();
-            case $statusCode === 504:
+            case 504 === $statusCode:
                 return self::deadlineExceeded();
             case $statusCode < 400:
                 return self::ok();

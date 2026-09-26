@@ -9,11 +9,12 @@ use Psr\Http\Message\UploadedFileInterface;
 use Jasnita\Monitor\Sdk\Event;
 use Jasnita\Monitor\Sdk\Exception\JsonException;
 use Jasnita\Monitor\Sdk\Options;
-use Jasnita\Monitor\Sdk\OptionsResolver;
 use Jasnita\Monitor\Sdk\JasnitaSdk;
 use Jasnita\Monitor\Sdk\State\Scope;
 use Jasnita\Monitor\Sdk\UserDataBag;
 use Jasnita\Monitor\Sdk\Util\JSON;
+use Symfony\Component\OptionsResolver\Options as SymfonyOptions;
+use Symfony\Component\OptionsResolver\OptionsResolver;
 
 /**
  * This integration collects information from the request and attaches them to
@@ -40,8 +41,11 @@ final class RequestIntegration implements IntegrationInterface
     /**
      * This constant is a map of maximum allowed sizes for each value of the
      * `max_request_body_size` option.
+     *
+     * @deprecated The 'none' option is deprecated since version 3.10, to be removed in 4.0
      */
     private const MAX_REQUEST_BODY_SIZE_OPTION_TO_MAX_LENGTH_MAP = [
+        'none' => 0,
         'never' => 0,
         'small' => self::REQUEST_BODY_SMALL_MAX_CONTENT_LENGTH,
         'medium' => self::REQUEST_BODY_MEDIUM_MAX_CONTENT_LENGTH,
@@ -54,7 +58,6 @@ final class RequestIntegration implements IntegrationInterface
      */
     private const DEFAULT_SENSITIVE_HEADERS = [
         'Authorization',
-        'Proxy-Authorization',
         'Cookie',
         'Set-Cookie',
         'X-Forwarded-For',
@@ -69,7 +72,7 @@ final class RequestIntegration implements IntegrationInterface
     /**
      * @var array<string, mixed> The options
      *
-     * @phpstan-var array{
+     * @psalm-var array{
      *     pii_sanitize_headers: string[]
      * }
      */
@@ -81,7 +84,7 @@ final class RequestIntegration implements IntegrationInterface
      * @param RequestFetcherInterface|null $requestFetcher PSR-7 request fetcher
      * @param array<string, mixed>         $options        The options
      *
-     * @phpstan-param array{
+     * @psalm-param array{
      *     pii_sanitize_headers?: string[]
      * } $options
      */
@@ -92,10 +95,7 @@ final class RequestIntegration implements IntegrationInterface
         $this->configureOptions($resolver);
 
         $this->requestFetcher = $requestFetcher ?? new RequestFetcher();
-
-        /** @var array{pii_sanitize_headers: string[]} $resolvedOptions */
-        $resolvedOptions = $resolver->resolve($options);
-        $this->options = $resolvedOptions;
+        $this->options = $resolver->resolve($options);
     }
 
     /**
@@ -110,7 +110,7 @@ final class RequestIntegration implements IntegrationInterface
 
             // The client bound to the current hub, if any, could not have this
             // integration enabled. If this is the case, bail out
-            if ($integration === null || $client === null) {
+            if (null === $integration || null === $client) {
                 return $event;
             }
 
@@ -124,7 +124,7 @@ final class RequestIntegration implements IntegrationInterface
     {
         $request = $this->requestFetcher->fetchRequest();
 
-        if ($request === null) {
+        if (null === $request) {
             return;
         }
 
@@ -140,13 +140,13 @@ final class RequestIntegration implements IntegrationInterface
         if ($options->shouldSendDefaultPii()) {
             $serverParams = $request->getServerParams();
 
-            if (!empty($serverParams['REMOTE_ADDR'])) {
+            if (isset($serverParams['REMOTE_ADDR'])) {
                 $user = $event->getUser();
                 $requestData['env']['REMOTE_ADDR'] = $serverParams['REMOTE_ADDR'];
 
-                if ($user === null) {
+                if (null === $user) {
                     $user = UserDataBag::createFromUserIpAddress($serverParams['REMOTE_ADDR']);
-                } elseif ($user->getIpAddress() === null) {
+                } elseif (null === $user->getIpAddress()) {
                     $user->setIpAddress($serverParams['REMOTE_ADDR']);
                 }
 
@@ -226,9 +226,9 @@ final class RequestIntegration implements IntegrationInterface
         $requestBody = '';
         $maxLength = self::MAX_REQUEST_BODY_SIZE_OPTION_TO_MAX_LENGTH_MAP[$maxRequestBodySize];
 
-        if ($maxLength > 0) {
+        if (0 < $maxLength) {
             $stream = $request->getBody();
-            while ($maxLength > 0 && !$stream->eof()) {
+            while (0 < $maxLength && !$stream->eof()) {
                 if ('' === $buffer = $stream->read(min($maxLength, self::REQUEST_BODY_MEDIUM_MAX_CONTENT_LENGTH))) {
                     break;
                 }
@@ -237,7 +237,7 @@ final class RequestIntegration implements IntegrationInterface
             }
         }
 
-        if ($request->getHeaderLine('Content-Type') === 'application/json') {
+        if ('application/json' === $request->getHeaderLine('Content-Type')) {
             try {
                 return JSON::decode($requestBody);
             } catch (JsonException $exception) {
@@ -270,7 +270,7 @@ final class RequestIntegration implements IntegrationInterface
             } elseif (\is_array($item)) {
                 $result[$key] = $this->parseUploadedFiles($item);
             } else {
-                throw new \UnexpectedValueException(\sprintf('Expected either an object implementing the "%s" interface or an array. Got: "%s".', UploadedFileInterface::class, \is_object($item) ? \get_class($item) : \gettype($item)));
+                throw new \UnexpectedValueException(sprintf('Expected either an object implementing the "%s" interface or an array. Got: "%s".', UploadedFileInterface::class, \is_object($item) ? \get_class($item) : \gettype($item)));
             }
         }
 
@@ -283,15 +283,15 @@ final class RequestIntegration implements IntegrationInterface
             return false;
         }
 
-        if ($maxRequestBodySize === 'none' || $maxRequestBodySize === 'never') {
+        if ('none' === $maxRequestBodySize || 'never' === $maxRequestBodySize) {
             return false;
         }
 
-        if ($maxRequestBodySize === 'small' && $requestBodySize > self::REQUEST_BODY_SMALL_MAX_CONTENT_LENGTH) {
+        if ('small' === $maxRequestBodySize && $requestBodySize > self::REQUEST_BODY_SMALL_MAX_CONTENT_LENGTH) {
             return false;
         }
 
-        if ($maxRequestBodySize === 'medium' && $requestBodySize > self::REQUEST_BODY_MEDIUM_MAX_CONTENT_LENGTH) {
+        if ('medium' === $maxRequestBodySize && $requestBodySize > self::REQUEST_BODY_MEDIUM_MAX_CONTENT_LENGTH) {
             return false;
         }
 
@@ -305,10 +305,10 @@ final class RequestIntegration implements IntegrationInterface
      */
     private function configureOptions(OptionsResolver $resolver): void
     {
+        $resolver->setDefault('pii_sanitize_headers', self::DEFAULT_SENSITIVE_HEADERS);
         $resolver->setAllowedTypes('pii_sanitize_headers', 'string[]');
-        $resolver->setNormalizer('pii_sanitize_headers', static function (array $value): array {
+        $resolver->setNormalizer('pii_sanitize_headers', static function (SymfonyOptions $options, array $value): array {
             return array_map('strtolower', $value);
         });
-        $resolver->setDefault('pii_sanitize_headers', self::DEFAULT_SENSITIVE_HEADERS);
     }
 }

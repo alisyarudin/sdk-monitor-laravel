@@ -7,6 +7,11 @@ namespace Jasnita\Monitor\Sdk\Tracing;
 class SpanContext
 {
     /**
+     * @deprecated since version 3.1, to be removed in 4.0
+     */
+    private const TRACEPARENT_HEADER_REGEX = '/^[ \\t]*(?<trace_id>[0-9a-f]{32})?-?(?<span_id>[0-9a-f]{16})?-?(?<sampled>[01])?[ \\t]*$/i';
+
+    /**
      * @var string|null Description of the Span
      */
     private $description;
@@ -61,32 +66,14 @@ class SpanContext
      */
     private $endTimestamp;
 
-    /**
-     * @var string|null the trace origin of the span
-     */
-    private $origin;
-
-    /**
-     * @return self
-     */
-    public static function make()
-    {
-        return new self();
-    }
-
     public function getDescription(): ?string
     {
         return $this->description;
     }
 
-    /**
-     * @return $this
-     */
-    public function setDescription(?string $description)
+    public function setDescription(?string $description): void
     {
         $this->description = $description;
-
-        return $this;
     }
 
     public function getOp(): ?string
@@ -94,14 +81,9 @@ class SpanContext
         return $this->op;
     }
 
-    /**
-     * @return $this
-     */
-    public function setOp(?string $op)
+    public function setOp(?string $op): void
     {
         $this->op = $op;
-
-        return $this;
     }
 
     public function getStatus(): ?SpanStatus
@@ -109,14 +91,9 @@ class SpanContext
         return $this->status;
     }
 
-    /**
-     * @return $this
-     */
-    public function setStatus(?SpanStatus $status)
+    public function setStatus(?SpanStatus $status): void
     {
         $this->status = $status;
-
-        return $this;
     }
 
     public function getParentSpanId(): ?SpanId
@@ -124,14 +101,9 @@ class SpanContext
         return $this->parentSpanId;
     }
 
-    /**
-     * @return $this
-     */
-    public function setParentSpanId(?SpanId $parentSpanId)
+    public function setParentSpanId(?SpanId $parentSpanId): void
     {
         $this->parentSpanId = $parentSpanId;
-
-        return $this;
     }
 
     public function getSampled(): ?bool
@@ -139,14 +111,9 @@ class SpanContext
         return $this->sampled;
     }
 
-    /**
-     * @return $this
-     */
-    public function setSampled(?bool $sampled)
+    public function setSampled(?bool $sampled): void
     {
         $this->sampled = $sampled;
-
-        return $this;
     }
 
     public function getSpanId(): ?SpanId
@@ -154,14 +121,9 @@ class SpanContext
         return $this->spanId;
     }
 
-    /**
-     * @return $this
-     */
-    public function setSpanId(?SpanId $spanId)
+    public function setSpanId(?SpanId $spanId): void
     {
         $this->spanId = $spanId;
-
-        return $this;
     }
 
     public function getTraceId(): ?TraceId
@@ -169,14 +131,9 @@ class SpanContext
         return $this->traceId;
     }
 
-    /**
-     * @return $this
-     */
-    public function setTraceId(?TraceId $traceId)
+    public function setTraceId(?TraceId $traceId): void
     {
         $this->traceId = $traceId;
-
-        return $this;
     }
 
     /**
@@ -189,14 +146,10 @@ class SpanContext
 
     /**
      * @param array<string, string> $tags
-     *
-     * @return $this
      */
-    public function setTags(array $tags)
+    public function setTags(array $tags): void
     {
         $this->tags = $tags;
-
-        return $this;
     }
 
     /**
@@ -209,14 +162,10 @@ class SpanContext
 
     /**
      * @param array<string, mixed> $data
-     *
-     * @return $this
      */
-    public function setData(array $data)
+    public function setData(array $data): void
     {
         $this->data = $data;
-
-        return $this;
     }
 
     public function getStartTimestamp(): ?float
@@ -224,14 +173,9 @@ class SpanContext
         return $this->startTimestamp;
     }
 
-    /**
-     * @return $this
-     */
-    public function setStartTimestamp(?float $startTimestamp)
+    public function setStartTimestamp(?float $startTimestamp): void
     {
         $this->startTimestamp = $startTimestamp;
-
-        return $this;
     }
 
     public function getEndTimestamp(): ?float
@@ -239,28 +183,42 @@ class SpanContext
         return $this->endTimestamp;
     }
 
-    /**
-     * @return $this
-     */
-    public function setEndTimestamp(?float $endTimestamp)
+    public function setEndTimestamp(?float $endTimestamp): void
     {
         $this->endTimestamp = $endTimestamp;
-
-        return $this;
-    }
-
-    public function getOrigin(): ?string
-    {
-        return $this->origin;
     }
 
     /**
-     * @return $this
+     * Returns a context populated with the data of the given header.
+     *
+     * @param string $header The jasnita-trace header from the request
+     *
+     * @return static
+     *
+     * @deprecated since version 3.1, to be removed in 4.0
      */
-    public function setOrigin(?string $origin)
+    public static function fromTraceparent(string $header)
     {
-        $this->origin = $origin;
+        @trigger_error(sprintf('The %s() method is deprecated since version 3.1 and will be removed in 4.0. Use TransactionContext::fromHeaders() instead.', __METHOD__), \E_USER_DEPRECATED);
 
-        return $this;
+        $context = new static();
+
+        if (!preg_match(self::TRACEPARENT_HEADER_REGEX, $header, $matches)) {
+            return $context;
+        }
+
+        if (!empty($matches['trace_id'])) {
+            $context->traceId = new TraceId($matches['trace_id']);
+        }
+
+        if (!empty($matches['span_id'])) {
+            $context->parentSpanId = new SpanId($matches['span_id']);
+        }
+
+        if (isset($matches['sampled'])) {
+            $context->sampled = '1' === $matches['sampled'];
+        }
+
+        return $context;
     }
 }

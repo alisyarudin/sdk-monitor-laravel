@@ -24,7 +24,7 @@ final class ProfileTest extends TestCase
         $profile->setStartTimeStamp(1677573660.0000);
 
         $profile->setExcimerLog($excimerLog);
-        $profile->setEventId(new EventId('815e57b4bb134056ab1840919834689d'));
+        $profile->setEventId((new EventId('815e57b4bb134056ab1840919834689d')));
 
         $this->assertSame($expectedData, $profile->getFormattedData($event));
     }
@@ -41,8 +41,7 @@ final class ProfileTest extends TestCase
         ]);
         $event->setRuntimeContext(new RuntimeContext(
             'php',
-            '8.2.3',
-            'cli'
+            '8.2.3'
         ));
         $event->setOsContext(new OsContext(
             'macOS',
@@ -132,7 +131,6 @@ final class ProfileTest extends TestCase
                 'environment' => 'dev',
                 'runtime' => [
                     'name' => 'php',
-                    'sapi' => 'cli',
                     'version' => '8.2.3',
                 ],
                 'timestamp' => '2023-02-28T08:41:00.000+00:00',
@@ -233,7 +231,6 @@ final class ProfileTest extends TestCase
                 'environment' => 'dev',
                 'runtime' => [
                     'name' => 'php',
-                    'sapi' => 'cli',
                     'version' => '8.2.3',
                 ],
                 'timestamp' => '2023-02-28T08:41:00.000+00:00',

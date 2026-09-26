@@ -1,35 +1,37 @@
 <?php // Dihasilkan tools/rebrand.php dari hulu sdk-laravel — jangan diubah manual.
 
-namespace Jasnita\Monitor\Laravel\Tests;
+namespace Jasnita\Monitor\Sdk;
 
-class ServiceProviderWithEnvironmentFromConfigTest extends TestCase
+use Jasnita\Monitor\Laravel\Tests\JasnitaLaravelTestCase;
+
+class ServiceProviderWithEnvironmentFromConfigTest extends JasnitaLaravelTestCase
 {
-    public function testJasnitaEnvironmentDefaultsToLaravelEnvironment(): void
+    public function testJasnitaEnvironmentDefaultsToLaravelEnvironment()
     {
         $this->assertEquals('testing', app()->environment());
     }
 
-    public function testEmptyJasnitaEnvironmentDefaultsToLaravelEnvironment(): void
+    public function testEmptyJasnitaEnvironmentDefaultsToLaravelEnvironment()
     {
         $this->resetApplicationWithConfig([
             'jasnita.environment' => '',
         ]);
 
-        $this->assertEquals('testing', $this->getJasnitaClientFromContainer()->getOptions()->getEnvironment());
+        $this->assertEquals('testing', $this->getHubFromContainer()->getClient()->getOptions()->getEnvironment());
 
         $this->resetApplicationWithConfig([
             'jasnita.environment' => null,
         ]);
 
-        $this->assertEquals('testing', $this->getJasnitaClientFromContainer()->getOptions()->getEnvironment());
+        $this->assertEquals('testing', $this->getHubFromContainer()->getClient()->getOptions()->getEnvironment());
     }
 
-    public function testJasnitaEnvironmentDefaultGetsOverriddenByConfig(): void
+    public function testJasnitaEnvironmentDefaultGetsOverriddenByConfig()
     {
         $this->resetApplicationWithConfig([
-            'jasnita.environment' => 'override_env',
+            'jasnita.environment' => 'not_testing',
         ]);
 
-        $this->assertEquals('override_env', $this->getJasnitaClientFromContainer()->getOptions()->getEnvironment());
+        $this->assertEquals('not_testing', $this->getHubFromContainer()->getClient()->getOptions()->getEnvironment());
     }
 }

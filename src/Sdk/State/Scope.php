@@ -4,11 +4,9 @@ declare(strict_types=1);
 
 namespace Jasnita\Monitor\Sdk\State;
 
-use Jasnita\Monitor\Sdk\Attachment\Attachment;
 use Jasnita\Monitor\Sdk\Breadcrumb;
 use Jasnita\Monitor\Sdk\Event;
 use Jasnita\Monitor\Sdk\EventHint;
-use Jasnita\Monitor\Sdk\EventType;
 use Jasnita\Monitor\Sdk\Options;
 use Jasnita\Monitor\Sdk\Severity;
 use Jasnita\Monitor\Sdk\Tracing\DynamicSamplingContext;
@@ -21,15 +19,8 @@ use Jasnita\Monitor\Sdk\UserDataBag;
  * The scope holds data that should implicitly be sent with Jasnita events. It
  * can hold context data, extra parameters, level overrides, fingerprints etc.
  */
-class Scope
+final class Scope
 {
-    /**
-     * Maximum number of flags allowed. We only track the first flags set.
-     *
-     * @internal
-     */
-    public const MAX_FLAGS = 100;
-
     /**
      * @var PropagationContext
      */
@@ -56,11 +47,6 @@ class Scope
     private $tags = [];
 
     /**
-     * @var array<int, array<string, bool>> The list of flags associated to this scope
-     */
-    private $flags = [];
-
-    /**
      * @var array<string, mixed> A set of extra data associated to this scope
      */
     private $extra = [];
@@ -80,7 +66,7 @@ class Scope
     /**
      * @var callable[] List of event processors
      *
-     * @phpstan-var array<callable(Event, EventHint): ?Event>
+     * @psalm-var array<callable(Event, EventHint): ?Event>
      */
     private $eventProcessors = [];
 
@@ -90,23 +76,13 @@ class Scope
     private $span;
 
     /**
-     * @var Attachment[]
-     */
-    private $attachments = [];
-
-    /**
      * @var callable[] List of event processors
      *
-     * @phpstan-var array<callable(Event, EventHint): ?Event>
+     * @psalm-var array<callable(Event, EventHint): ?Event>
      */
     private static $globalEventProcessors = [];
 
-    /**
-     * @var callable|null
-     */
-    private static $externalPropagationContextCallback;
-
-    public function __construct(?PropagationContext $propagationContext = null)
+    public function __construct(PropagationContext $propagationContext = null)
     {
         $this->propagationContext = $propagationContext ?? PropagationContext::fromDefaults();
     }
@@ -150,35 +126,6 @@ class Scope
     public function removeTag(string $key): self
     {
         unset($this->tags[$key]);
-
-        return $this;
-    }
-
-    /**
-     * Adds a feature flag to the scope.
-     *
-     * @return $this
-     */
-    public function addFeatureFlag(string $key, bool $result): self
-    {
-        // If the flag was already set, remove it first
-        // This basically mimics an LRU cache so that the most recently added flags are kept
-        foreach ($this->flags as $flagIndex => $flag) {
-            if (isset($flag[$key])) {
-                unset($this->flags[$flagIndex]);
-            }
-        }
-
-        // Keep only the most recent MAX_FLAGS flags
-        if (\count($this->flags) >= self::MAX_FLAGS) {
-            array_shift($this->flags);
-        }
-
-        $this->flags[] = [$key => $result];
-
-        if ($this->span !== null) {
-            $this->span->setFlag($key, $result);
-        }
 
         return $this;
     }
@@ -261,14 +208,14 @@ class Scope
     public function setUser($user): self
     {
         if (!\is_array($user) && !$user instanceof UserDataBag) {
-            throw new \TypeError(\sprintf('The $user argument must be either an array or an instance of the "%s" class. Got: "%s".', UserDataBag::class, get_debug_type($user)));
+            throw new \TypeError(sprintf('The $user argument must be either an array or an instance of the "%s" class. Got: "%s".', UserDataBag::class, get_debug_type($user)));
         }
 
         if (\is_array($user)) {
             $user = UserDataBag::createFromArray($user);
         }
 
-        if ($this->user === null) {
+        if (null === $this->user) {
             $this->user = $user;
         } else {
             $this->user = $this->user->merge($user);
@@ -334,16 +281,6 @@ class Scope
     }
 
     /**
-     * Gets the breadcrumbs.
-     *
-     * @return Breadcrumb[]
-     */
-    public function getBreadcrumbs(): array
-    {
-        return $this->breadcrumbs;
-    }
-
-    /**
      * Clears all the breadcrumbs.
      *
      * @return $this
@@ -381,53 +318,6 @@ class Scope
         self::$globalEventProcessors[] = $eventProcessor;
     }
 
-    public static function registerExternalPropagationContext(callable $callback): void
-    {
-        self::$externalPropagationContextCallback = $callback;
-    }
-
-    public static function clearExternalPropagationContext(): void
-    {
-        self::$externalPropagationContextCallback = null;
-    }
-
-    /**
-     * @return array{trace_id: string, span_id: string}|null
-     */
-    public static function getExternalPropagationContext(): ?array
-    {
-        $callback = self::$externalPropagationContextCallback;
-        if (!\is_callable($callback)) {
-            return null;
-        }
-
-        try {
-            $context = $callback();
-        } catch (\Throwable $exception) {
-            return null;
-        }
-
-        if (!\is_array($context)) {
-            return null;
-        }
-
-        $traceId = $context['trace_id'] ?? null;
-        $spanId = $context['span_id'] ?? null;
-
-        if (!\is_string($traceId) || preg_match('/^[0-9a-f]{32}$/i', $traceId) !== 1) {
-            return null;
-        }
-
-        if (!\is_string($spanId) || preg_match('/^[0-9a-f]{16}$/i', $spanId) !== 1) {
-            return null;
-        }
-
-        return [
-            'trace_id' => $traceId,
-            'span_id' => $spanId,
-        ];
-    }
-
     /**
      * Clears the scope and resets any data it contains.
      *
@@ -441,10 +331,8 @@ class Scope
         $this->fingerprint = [];
         $this->breadcrumbs = [];
         $this->tags = [];
-        $this->flags = [];
         $this->extra = [];
         $this->contexts = [];
-        $this->attachments = [];
 
         return $this;
     }
@@ -463,7 +351,7 @@ class Scope
             $event->setBreadcrumb($this->breadcrumbs);
         }
 
-        if ($this->level !== null) {
+        if (null !== $this->level) {
             $event->setLevel($this->level);
         }
 
@@ -471,25 +359,14 @@ class Scope
             $event->setTags(array_merge($this->tags, $event->getTags()));
         }
 
-        if (!empty($this->flags)) {
-            $event->setContext('flags', [
-                'values' => array_map(static function (array $flag) {
-                    return [
-                        'flag' => key($flag),
-                        'result' => current($flag),
-                    ];
-                }, array_values($this->flags)),
-            ]);
-        }
-
         if (!empty($this->extra)) {
             $event->setExtra(array_merge($this->extra, $event->getExtra()));
         }
 
-        if ($this->user !== null) {
+        if (null !== $this->user) {
             $user = $event->getUser();
 
-            if ($user === null) {
+            if (null === $user) {
                 $user = $this->user;
             } else {
                 $user = $this->user->merge($user);
@@ -500,32 +377,21 @@ class Scope
 
         /**
          * Apply the trace context to errors if there is a Span on the Scope.
-         * Else fallback to the external propagation context or to the
-         * propagation context.
-         * But do not override a trace context already present.
+         * Else fallback to the propagation context.
          */
-        $externalPropagationContext = null;
-        if ($this->span === null) {
-            $externalPropagationContext = self::getExternalPropagationContext();
-        }
+        if (null !== $this->span) {
+            $event->setContext('trace', $this->span->getTraceContext());
 
-        $traceContext = $this->span !== null
-            ? $this->span->getTraceContext()
-            : ($externalPropagationContext ?? $this->propagationContext->getTraceContext());
-
-        if (!\array_key_exists('trace', $event->getContexts())) {
-            $event->setContext('trace', $traceContext);
-        }
-
-        if ($this->span !== null) {
             // Apply the dynamic sampling context to errors if there is a Transaction on the Scope
             $transaction = $this->span->getTransaction();
-            if ($transaction !== null) {
+            if (null !== $transaction) {
                 $event->setSdkMetadata('dynamic_sampling_context', $transaction->getDynamicSamplingContext());
             }
-        } elseif ($externalPropagationContext === null) {
+        } else {
+            $event->setContext('trace', $this->propagationContext->getTraceContext());
+
             $dynamicSamplingContext = $this->propagationContext->getDynamicSamplingContext();
-            if ($dynamicSamplingContext === null && $options !== null) {
+            if (null === $dynamicSamplingContext && null !== $options) {
                 $dynamicSamplingContext = DynamicSamplingContext::fromOptions($options, $this);
             }
             $event->setSdkMetadata('dynamic_sampling_context', $dynamicSamplingContext);
@@ -536,33 +402,19 @@ class Scope
         }
 
         // We create a empty `EventHint` instance to allow processors to always receive a `EventHint` instance even if there wasn't one
-        if ($hint === null) {
+        if (null === $hint) {
             $hint = new EventHint();
         }
 
-        if ($event->getType() === EventType::event() || $event->getType() === EventType::transaction()) {
-            if (empty($event->getAttachments())) {
-                $event->setAttachments($this->attachments);
-            }
-        }
-
         foreach (array_merge(self::$globalEventProcessors, $this->eventProcessors) as $processor) {
-            try {
-                $event = $processor($event, $hint);
-            } catch (\Throwable $exception) {
-                if ($options !== null) {
-                    $options->getLoggerOrNullLogger()->error(\sprintf('The event processor failed with exception: "%s".', $exception->getMessage()));
-                }
+            $event = $processor($event, $hint);
 
-                return null;
-            }
-
-            if ($event === null) {
+            if (null === $event) {
                 return null;
             }
 
             if (!$event instanceof Event) {
-                throw new \InvalidArgumentException(\sprintf('The event processor must return null or an instance of the %s class', Event::class));
+                throw new \InvalidArgumentException(sprintf('The event processor must return null or an instance of the %s class', Event::class));
             }
         }
 
@@ -596,38 +448,11 @@ class Scope
      */
     public function getTransaction(): ?Transaction
     {
-        if ($this->span !== null) {
+        if (null !== $this->span) {
             return $this->span->getTransaction();
         }
 
         return null;
-    }
-
-    public function hasExternalPropagationContext(): bool
-    {
-        return $this->span === null && self::getExternalPropagationContext() !== null;
-    }
-
-    /**
-     * @return array{
-     *     trace_id: string,
-     *     span_id: string,
-     *     parent_span_id?: string,
-     *     data?: array<string, mixed>,
-     *     description?: string,
-     *     op?: string,
-     *     status?: string,
-     *     tags?: array<string, string>,
-     *     origin?: string
-     * }
-     */
-    public function getTraceContext(): array
-    {
-        if ($this->span !== null) {
-            return $this->span->getTraceContext();
-        }
-
-        return self::getExternalPropagationContext() ?? $this->propagationContext->getTraceContext();
     }
 
     public function getPropagationContext(): PropagationContext
@@ -644,25 +469,11 @@ class Scope
 
     public function __clone()
     {
-        if ($this->user !== null) {
+        if (null !== $this->user) {
             $this->user = clone $this->user;
         }
-        if ($this->propagationContext !== null) {
+        if (null !== $this->propagationContext) {
             $this->propagationContext = clone $this->propagationContext;
         }
-    }
-
-    public function addAttachment(Attachment $attachment): self
-    {
-        $this->attachments[] = $attachment;
-
-        return $this;
-    }
-
-    public function clearAttachments(): self
-    {
-        $this->attachments = [];
-
-        return $this;
     }
 }

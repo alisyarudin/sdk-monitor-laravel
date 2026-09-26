@@ -2,26 +2,20 @@
 
 namespace Jasnita\Monitor\Laravel;
 
-use DateTimeInterface;
 use Monolog\DateTimeImmutable;
 use Monolog\Logger;
-use Monolog\LogRecord;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Formatter\FormatterInterface;
 use Monolog\Handler\AbstractProcessingHandler;
 use Jasnita\Monitor\Sdk\Breadcrumb;
 use Jasnita\Monitor\Sdk\Event;
-use Jasnita\Monitor\Sdk\Monolog\CompatibilityProcessingHandlerTrait;
 use Jasnita\Monitor\Sdk\Severity;
 use Jasnita\Monitor\Sdk\State\HubInterface;
 use Jasnita\Monitor\Sdk\State\Scope;
 use Throwable;
-use TypeError;
 
 class JasnitaHandler extends AbstractProcessingHandler
 {
-    use CompatibilityProcessingHandlerTrait;
-
     /**
      * @var string the current application environment (staging|preprod|prod)
      */
@@ -152,14 +146,29 @@ class JasnitaHandler extends AbstractProcessingHandler
      */
     protected function getLogLevel(int $logLevel): Severity
     {
-        return $this->getSeverityFromLevel($logLevel);
+        switch ($logLevel) {
+            case Logger::DEBUG:
+                return Severity::debug();
+            case Logger::NOTICE:
+            case Logger::INFO:
+                return Severity::info();
+            case Logger::WARNING:
+                return Severity::warning();
+            case Logger::ALERT:
+            case Logger::EMERGENCY:
+            case Logger::CRITICAL:
+                return Severity::fatal();
+            case Logger::ERROR:
+            default:
+                return Severity::error();
+        }
     }
 
     /**
      * {@inheritdoc}
      * @suppress PhanTypeMismatchArgument
      */
-    protected function doWrite($record): void
+    protected function write(array $record): void
     {
         $exception = $record['context']['exception'] ?? null;
         $isException = $exception instanceof Throwable;
@@ -171,35 +180,47 @@ class JasnitaHandler extends AbstractProcessingHandler
 
         $this->hub->withScope(
             function (Scope $scope) use ($record, $isException, $exception) {
-                $context = !empty($record['context']) && is_array($record['context'])
-                    ? $record['context']
-                    : [];
-
-                if (!empty($context)) {
-                    $this->consumeContextAndApplyToScope($scope, $context);
+                if (!empty($record['context']['extra'])) {
+                    foreach ($record['context']['extra'] as $key => $tag) {
+                        $scope->setExtra($key, $tag);
+                    }
+                    unset($record['context']['extra']);
                 }
 
-                if (!empty($record['extra']) && is_array($record['extra'])) {
+                if (!empty($record['context']['tags'])) {
+                    foreach ($record['context']['tags'] as $key => $tag) {
+                        $scope->setTag($key, (string)$tag);
+                    }
+                    unset($record['context']['tags']);
+                }
+
+                if (!empty($record['extra'])) {
                     foreach ($record['extra'] as $key => $extra) {
                         $scope->setExtra($key, $extra);
                     }
                 }
 
-                $logger = !empty($context['logger']) && is_string($context['logger'])
-                    ? $context['logger']
-                    : null;
-                unset($context['logger']);
+                if (!empty($record['context']['fingerprint'])) {
+                    $scope->setFingerprint($record['context']['fingerprint']);
+                    unset($record['context']['fingerprint']);
+                }
 
-                // At this point we consumed everything we could from the context
-                // what remains we add as `log_context` to the event as a whole
-                if (!empty($context)) {
-                    $scope->setExtra('log_context', $context);
+                if (!empty($record['context']['user'])) {
+                    $scope->setUser((array)$record['context']['user']);
+                    unset($record['context']['user']);
+                }
+
+                $logger = !empty($record['context']['logger']) ? $record['context']['logger'] : $record['channel'];
+                unset($record['context']['logger']);
+
+                if (!empty($record['context'])) {
+                    $scope->setExtra('log_context', $record['context']);
                 }
 
                 $scope->addEventProcessor(
                     function (Event $event) use ($record, $logger) {
                         $event->setLevel($this->getLogLevel($record['level']));
-                        $event->setLogger($logger ?? $record['channel']);
+                        $event->setLogger($logger);
 
                         if (!empty($this->environment) && !$event->getEnvironment()) {
                             $event->setEnvironment($this->environment);
@@ -209,7 +230,7 @@ class JasnitaHandler extends AbstractProcessingHandler
                             $event->setRelease($this->release);
                         }
 
-                        if (isset($record['datetime']) && $record['datetime'] instanceof DateTimeInterface) {
+                        if (isset($record['datetime']) && $record['datetime'] instanceof DateTimeImmutable) {
                             $event->setTimestamp($record['datetime']->getTimestamp());
                         }
 
@@ -290,66 +311,5 @@ class JasnitaHandler extends AbstractProcessingHandler
         $this->hub->addBreadcrumb($crumb);
 
         return $this;
-    }
-
-    /**
-     * Consumes the context and applies it to the scope.
-     *
-     * @param \Jasnita\Monitor\Sdk\State\Scope $scope
-     * @param array               $context
-     *
-     * @return void
-     */
-    private function consumeContextAndApplyToScope(Scope $scope, array &$context): void
-    {
-        if (!empty($context['extra']) && is_array($context['extra'])) {
-            foreach ($context['extra'] as $key => $value) {
-                $scope->setExtra($key, $value);
-            }
-
-            unset($context['extra']);
-        }
-
-        if (!empty($context['tags']) && is_array($context['tags'])) {
-            foreach ($context['tags'] as $tag => $value) {
-                // Ignore tags with a value that is not a string or can be casted to a string
-                if (!$this->valueCanBeString($value)) {
-                    continue;
-                }
-
-                $scope->setTag($tag, (string)$value);
-            }
-
-            unset($context['tags']);
-        }
-
-        if (!empty($context['fingerprint']) && is_array($context['fingerprint'])) {
-            $scope->setFingerprint($context['fingerprint']);
-
-            unset($context['fingerprint']);
-        }
-
-        if (!empty($context['user']) && is_array($context['user'])) {
-            try {
-                $scope->setUser($context['user']);
-
-                unset($context['user']);
-            } catch (TypeError $e) {
-                // In some cases the context can be invalid, in that case we ignore it and
-                // choose to not send it to Jasnita in favor of not breaking the application
-            }
-        }
-    }
-
-    /**
-     * Check if the value passed can be cast to a string.
-     *
-     * @param mixed $value
-     *
-     * @return bool
-     */
-    private function valueCanBeString($value): bool
-    {
-        return is_string($value) || is_scalar($value) || (is_object($value) && method_exists($value, '__toString'));
     }
 }

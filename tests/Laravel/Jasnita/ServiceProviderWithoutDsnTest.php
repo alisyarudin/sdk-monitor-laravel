@@ -2,25 +2,24 @@
 
 namespace Jasnita\Monitor\Laravel\Tests;
 
-use Illuminate\Support\Facades\Artisan;
 use Jasnita\Monitor\Laravel\ServiceProvider;
 use Illuminate\Routing\Events\RouteMatched;
 
 class ServiceProviderWithoutDsnTest extends \Orchestra\Testbench\TestCase
 {
-    protected function defineEnvironment($app): void
+    protected function getEnvironmentSetUp($app)
     {
         $app['config']->set('jasnita.dsn', null);
     }
 
-    protected function getPackageProviders($app): array
+    protected function getPackageProviders($app)
     {
         return [
             ServiceProvider::class,
         ];
     }
 
-    public function testIsBound(): void
+    public function testIsBound()
     {
         $this->assertTrue(app()->bound('jasnita'));
     }
@@ -28,7 +27,7 @@ class ServiceProviderWithoutDsnTest extends \Orchestra\Testbench\TestCase
     /**
      * @depends testIsBound
      */
-    public function testDsnIsNotSet(): void
+    public function testDsnIsNotSet()
     {
         $this->assertNull(app('jasnita')->getClient()->getOptions()->getDsn());
     }
@@ -36,17 +35,8 @@ class ServiceProviderWithoutDsnTest extends \Orchestra\Testbench\TestCase
     /**
      * @depends testIsBound
      */
-    public function testDidNotRegisterEvents(): void
+    public function testDidNotRegisterEvents()
     {
-        $this->assertEquals(false, app('events')->hasListeners(RouteMatched::class));
-    }
-
-    /**
-     * @depends testIsBound
-     */
-    public function testArtisanCommandsAreRegistered(): void
-    {
-        $this->assertArrayHasKey('jasnita:test', Artisan::all());
-        $this->assertArrayHasKey('jasnita:publish', Artisan::all());
+        $this->assertEquals(false, app('events')->hasListeners('router.matched') && app('events')->hasListeners(RouteMatched::class));
     }
 }

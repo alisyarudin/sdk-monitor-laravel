@@ -8,9 +8,6 @@ use Jasnita\Monitor\Sdk\FrameBuilder;
 use Illuminate\Support\Str;
 use Jasnita\Monitor\Sdk\Serializer\RepresentationSerializerInterface;
 
-/**
- * @internal
- */
 class BacktraceHelper
 {
     /**

@@ -4,11 +4,9 @@ declare(strict_types=1);
 
 namespace Jasnita\Monitor\Sdk\Tracing;
 
-use Jasnita\Monitor\Sdk\Tracing\Traits\TraceHeaderParserTrait;
-
 final class TransactionContext extends SpanContext
 {
-    use TraceHeaderParserTrait;
+    private const TRACEPARENT_HEADER_REGEX = '/^[ \\t]*(?<trace_id>[0-9a-f]{32})?-?(?<span_id>[0-9a-f]{16})?-?(?<sampled>[01])?[ \\t]*$/i';
 
     public const DEFAULT_NAME = '<unlabeled transaction>';
 
@@ -45,14 +43,6 @@ final class TransactionContext extends SpanContext
     }
 
     /**
-     * @return self
-     */
-    public static function make()
-    {
-        return new self();
-    }
-
-    /**
      * Gets the name of the transaction.
      */
     public function getName(): string
@@ -65,11 +55,9 @@ final class TransactionContext extends SpanContext
      *
      * @param string $name The name
      */
-    public function setName(string $name): self
+    public function setName(string $name): void
     {
         $this->name = $name;
-
-        return $this;
     }
 
     /**
@@ -85,11 +73,9 @@ final class TransactionContext extends SpanContext
      *
      * @param bool|null $parentSampled The decision
      */
-    public function setParentSampled(?bool $parentSampled): self
+    public function setParentSampled(?bool $parentSampled): void
     {
         $this->parentSampled = $parentSampled;
-
-        return $this;
     }
 
     /**
@@ -105,11 +91,9 @@ final class TransactionContext extends SpanContext
      *
      * @param TransactionMetadata $metadata The transaction metadata
      */
-    public function setMetadata(TransactionMetadata $metadata): self
+    public function setMetadata(TransactionMetadata $metadata): void
     {
         $this->metadata = $metadata;
-
-        return $this;
     }
 
     /**
@@ -117,11 +101,39 @@ final class TransactionContext extends SpanContext
      *
      * @param TransactionSource $transactionSource The transaction source
      */
-    public function setSource(TransactionSource $transactionSource): self
+    public function setSource(TransactionSource $transactionSource): void
     {
         $this->metadata->setSource($transactionSource);
+    }
 
-        return $this;
+    /**
+     * Returns a context populated with the data of the given header.
+     *
+     * @param string $header The jasnita-trace header from the request
+     *
+     * @deprecated since version 3.9, to be removed in 4.0
+     */
+    public static function fromJasnitaTrace(string $header): self
+    {
+        $context = new self();
+
+        if (!preg_match(self::TRACEPARENT_HEADER_REGEX, $header, $matches)) {
+            return $context;
+        }
+
+        if (!empty($matches['trace_id'])) {
+            $context->traceId = new TraceId($matches['trace_id']);
+        }
+
+        if (!empty($matches['span_id'])) {
+            $context->parentSpanId = new SpanId($matches['span_id']);
+        }
+
+        if (isset($matches['sampled'])) {
+            $context->parentSampled = '1' === $matches['sampled'];
+        }
+
+        return $context;
     }
 
     /**
@@ -149,30 +161,38 @@ final class TransactionContext extends SpanContext
     private static function parseTraceAndBaggage(string $jasnitaTrace, string $baggage): self
     {
         $context = new self();
-        $parsedData = self::parseTraceAndBaggageHeaders($jasnitaTrace, $baggage);
+        $hasJasnitaTrace = false;
 
-        if ($parsedData['traceId'] !== null) {
-            $context->traceId = $parsedData['traceId'];
+        if (preg_match(self::TRACEPARENT_HEADER_REGEX, $jasnitaTrace, $matches)) {
+            if (!empty($matches['trace_id'])) {
+                $context->traceId = new TraceId($matches['trace_id']);
+                $hasJasnitaTrace = true;
+            }
+
+            if (!empty($matches['span_id'])) {
+                $context->parentSpanId = new SpanId($matches['span_id']);
+                $hasJasnitaTrace = true;
+            }
+
+            if (isset($matches['sampled'])) {
+                $context->parentSampled = '1' === $matches['sampled'];
+                $hasJasnitaTrace = true;
+            }
         }
 
-        if ($parsedData['parentSpanId'] !== null) {
-            $context->parentSpanId = $parsedData['parentSpanId'];
+        $samplingContext = DynamicSamplingContext::fromHeader($baggage);
+
+        if ($hasJasnitaTrace && !$samplingContext->hasEntries()) {
+            // The request comes from an old SDK which does not support Dynamic Sampling.
+            // Propagate the Dynamic Sampling Context as is, but frozen, even without jasnita-* entries.
+            $samplingContext->freeze();
+            $context->getMetadata()->setDynamicSamplingContext($samplingContext);
         }
 
-        if ($parsedData['parentSampled'] !== null) {
-            $context->parentSampled = $parsedData['parentSampled'];
-        }
-
-        if ($parsedData['dynamicSamplingContext'] !== null) {
-            $context->getMetadata()->setDynamicSamplingContext($parsedData['dynamicSamplingContext']);
-        }
-
-        if ($parsedData['parentSamplingRate'] !== null) {
-            $context->getMetadata()->setParentSamplingRate($parsedData['parentSamplingRate']);
-        }
-
-        if ($parsedData['sampleRand'] !== null) {
-            $context->getMetadata()->setSampleRand($parsedData['sampleRand']);
+        if ($hasJasnitaTrace && $samplingContext->hasEntries()) {
+            // The baggage header contains Dynamic Sampling Context data from an upstream SDK.
+            // Propagate this Dynamic Sampling Context.
+            $context->getMetadata()->setDynamicSamplingContext($samplingContext);
         }
 
         return $context;

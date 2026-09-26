@@ -40,15 +40,13 @@ final class DynamicSamplingContext
      * @param string $key   the list member key
      * @param string $value the list member value
      */
-    public function set(string $key, string $value, bool $forceOverwrite = false): self
+    public function set(string $key, string $value): void
     {
-        if ($this->isFrozen && !$forceOverwrite) {
-            return $this;
+        if ($this->isFrozen) {
+            return;
         }
 
         $this->entries[$key] = $value;
-
-        return $this;
     }
 
     /**
@@ -75,11 +73,9 @@ final class DynamicSamplingContext
     /**
      * Mark the dsc as frozen.
      */
-    public function freeze(): self
+    public function freeze(): void
     {
         $this->isFrozen = true;
-
-        return $this;
     }
 
     /**
@@ -131,8 +127,8 @@ final class DynamicSamplingContext
 
             [$key, $value] = explode('=', $keyValue, 2);
 
-            if (strncmp($key, self::JASNITA_MONITOR_ENTRY_PREFIX, \strlen(self::JASNITA_MONITOR_ENTRY_PREFIX)) === 0) {
-                $samplingContext->set(rawurldecode(substr($key, \strlen(self::JASNITA_MONITOR_ENTRY_PREFIX))), rawurldecode($value));
+            if (str_starts_with($key, self::JASNITA_MONITOR_ENTRY_PREFIX)) {
+                $samplingContext->set(rawurldecode(mb_substr($key, mb_strlen(self::JASNITA_MONITOR_ENTRY_PREFIX))), rawurldecode($value));
             }
         }
 
@@ -155,7 +151,7 @@ final class DynamicSamplingContext
         $samplingContext->set('trace_id', (string) $transaction->getTraceId());
 
         $sampleRate = $transaction->getMetaData()->getSamplingRate();
-        if ($sampleRate !== null) {
+        if (null !== $sampleRate) {
             $samplingContext->set('sample_rate', (string) $sampleRate);
         }
 
@@ -166,16 +162,30 @@ final class DynamicSamplingContext
 
         $client = $hub->getClient();
 
-        if ($client !== null) {
-            self::setOrgOptions($client->getOptions(), $samplingContext);
+        if (null !== $client) {
+            $options = $client->getOptions();
+
+            if (null !== $options->getDsn() && null !== $options->getDsn()->getPublicKey()) {
+                $samplingContext->set('public_key', $options->getDsn()->getPublicKey());
+            }
+
+            if (null !== $options->getRelease()) {
+                $samplingContext->set('release', $options->getRelease());
+            }
+
+            if (null !== $options->getEnvironment()) {
+                $samplingContext->set('environment', $options->getEnvironment());
+            }
         }
 
-        if ($transaction->getSampled() !== null) {
+        $hub->configureScope(static function (Scope $scope) use ($samplingContext): void {
+            if (null !== $scope->getUser() && null !== $scope->getUser()->getSegment()) {
+                $samplingContext->set('user_segment', $scope->getUser()->getSegment());
+            }
+        });
+
+        if (null !== $transaction->getSampled()) {
             $samplingContext->set('sampled', $transaction->getSampled() ? 'true' : 'false');
-        }
-
-        if ($transaction->getMetadata()->getSampleRand() !== null) {
-            $samplingContext->set('sample_rand', (string) $transaction->getMetadata()->getSampleRand());
         }
 
         $samplingContext->freeze();
@@ -187,38 +197,30 @@ final class DynamicSamplingContext
     {
         $samplingContext = new self();
         $samplingContext->set('trace_id', (string) $scope->getPropagationContext()->getTraceId());
-        $samplingContext->set('sample_rand', (string) $scope->getPropagationContext()->getSampleRand());
 
-        if ($options->getTracesSampleRate() !== null) {
+        if (null !== $options->getTracesSampleRate()) {
             $samplingContext->set('sample_rate', (string) $options->getTracesSampleRate());
         }
 
-        self::setOrgOptions($options, $samplingContext);
+        if (null !== $options->getDsn() && null !== $options->getDsn()->getPublicKey()) {
+            $samplingContext->set('public_key', $options->getDsn()->getPublicKey());
+        }
+
+        if (null !== $options->getRelease()) {
+            $samplingContext->set('release', $options->getRelease());
+        }
+
+        if (null !== $options->getEnvironment()) {
+            $samplingContext->set('environment', $options->getEnvironment());
+        }
+
+        if (null !== $scope->getUser() && null !== $scope->getUser()->getSegment()) {
+            $samplingContext->set('user_segment', $scope->getUser()->getSegment());
+        }
 
         $samplingContext->freeze();
 
         return $samplingContext;
-    }
-
-    private static function setOrgOptions(Options $options, DynamicSamplingContext $samplingContext): void
-    {
-        if ($options->getDsn() !== null && $options->getDsn()->getPublicKey() !== null) {
-            $samplingContext->set('public_key', $options->getDsn()->getPublicKey());
-        }
-
-        if ($options->getOrgId() !== null) {
-            $samplingContext->set('org_id', (string) $options->getOrgId());
-        } elseif ($options->getDsn() !== null && $options->getDsn()->getOrgId() !== null) {
-            $samplingContext->set('org_id', (string) $options->getDsn()->getOrgId());
-        }
-
-        if ($options->getRelease() !== null) {
-            $samplingContext->set('release', $options->getRelease());
-        }
-
-        if ($options->getEnvironment() !== null) {
-            $samplingContext->set('environment', $options->getEnvironment());
-        }
     }
 
     /**

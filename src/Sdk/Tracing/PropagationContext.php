@@ -6,11 +6,10 @@ namespace Jasnita\Monitor\Sdk\Tracing;
 
 use Jasnita\Monitor\Sdk\JasnitaSdk;
 use Jasnita\Monitor\Sdk\State\Scope;
-use Jasnita\Monitor\Sdk\Tracing\Traits\TraceHeaderParserTrait;
 
 final class PropagationContext
 {
-    use TraceHeaderParserTrait;
+    private const TRACEPARENT_HEADER_REGEX = '/^[ \\t]*(?<trace_id>[0-9a-f]{32})?-?(?<span_id>[0-9a-f]{16})?-?(?<sampled>[01])?[ \\t]*$/i';
 
     /**
      * @var TraceId The trace id
@@ -28,16 +27,6 @@ final class PropagationContext
     private $parentSpanId;
 
     /**
-     * @var bool|null The parent's sampling decision
-     */
-    private $parentSampled;
-
-    /**
-     * @var float|null
-     */
-    private $sampleRand;
-
-    /**
      * @var DynamicSamplingContext|null The dynamic sampling context
      */
     private $dynamicSamplingContext;
@@ -53,8 +42,6 @@ final class PropagationContext
         $context->traceId = TraceId::generate();
         $context->spanId = SpanId::generate();
         $context->parentSpanId = null;
-        $context->parentSampled = null;
-        $context->sampleRand = round(mt_rand(0, mt_getrandmax() - 1) / mt_getrandmax(), 6);
         $context->dynamicSamplingContext = null;
 
         return $context;
@@ -62,12 +49,12 @@ final class PropagationContext
 
     public static function fromHeaders(string $jasnitaTraceHeader, string $baggageHeader): self
     {
-        return self::parseTraceparentAndBaggage($jasnitaTraceHeader, $baggageHeader);
+        return self::parseTraceAndBaggage($jasnitaTraceHeader, $baggageHeader);
     }
 
     public static function fromEnvironment(string $jasnitaTrace, string $baggage): self
     {
-        return self::parseTraceparentAndBaggage($jasnitaTrace, $baggage);
+        return self::parseTraceAndBaggage($jasnitaTrace, $baggage);
     }
 
     /**
@@ -75,17 +62,7 @@ final class PropagationContext
      */
     public function toTraceparent(): string
     {
-        return \sprintf('%s-%s', (string) $this->traceId, (string) $this->spanId);
-    }
-
-    /**
-     * Returns a string that can be used for the W3C `traceparent` header & meta tag.
-     *
-     * @deprecated since version 4.12. To be removed in version 5.0.
-     */
-    public function toW3CTraceparent(): string
-    {
-        return '';
+        return sprintf('%s-%s', (string) $this->traceId, (string) $this->spanId);
     }
 
     /**
@@ -93,14 +70,14 @@ final class PropagationContext
      */
     public function toBaggage(): string
     {
-        if ($this->dynamicSamplingContext === null) {
+        if (null === $this->dynamicSamplingContext) {
             $hub = JasnitaSdk::getCurrentHub();
             $client = $hub->getClient();
 
-            if ($client !== null) {
+            if (null !== $client) {
                 $options = $client->getOptions();
 
-                if ($options !== null) {
+                if (null !== $options) {
                     $hub->configureScope(function (Scope $scope) use ($options) {
                         $this->dynamicSamplingContext = DynamicSamplingContext::fromOptions($options, $scope);
                     });
@@ -112,7 +89,7 @@ final class PropagationContext
     }
 
     /**
-     * @return array{trace_id: string, span_id: string, parent_span_id?: string}
+     * @return array<string, mixed>
      */
     public function getTraceContext(): array
     {
@@ -121,7 +98,7 @@ final class PropagationContext
             'span_id' => (string) $this->spanId,
         ];
 
-        if ($this->parentSpanId !== null) {
+        if (null !== $this->parentSpanId) {
             $result['parent_span_id'] = (string) $this->parentSpanId;
         }
 
@@ -153,11 +130,9 @@ final class PropagationContext
         return $this->spanId;
     }
 
-    public function setSpanId(SpanId $spanId): self
+    public function setSpanId(SpanId $spanId): void
     {
         $this->spanId = $spanId;
-
-        return $this;
     }
 
     public function getDynamicSamplingContext(): ?DynamicSamplingContext
@@ -165,48 +140,41 @@ final class PropagationContext
         return $this->dynamicSamplingContext;
     }
 
-    public function setDynamicSamplingContext(DynamicSamplingContext $dynamicSamplingContext): self
+    public function setDynamicSamplingContext(DynamicSamplingContext $dynamicSamplingContext): void
     {
         $this->dynamicSamplingContext = $dynamicSamplingContext;
-
-        return $this;
     }
 
-    public function getSampleRand(): ?float
-    {
-        return $this->sampleRand;
-    }
-
-    public function setSampleRand(?float $sampleRand): self
-    {
-        $this->sampleRand = $sampleRand;
-
-        return $this;
-    }
-
-    private static function parseTraceparentAndBaggage(string $traceparent, string $baggage): self
+    private static function parseTraceAndBaggage(string $jasnitaTrace, string $baggage): self
     {
         $context = self::fromDefaults();
-        $parsedData = self::parseTraceAndBaggageHeaders($traceparent, $baggage);
+        $hasJasnitaTrace = false;
 
-        if ($parsedData['traceId'] !== null) {
-            $context->traceId = $parsedData['traceId'];
+        if (preg_match(self::TRACEPARENT_HEADER_REGEX, $jasnitaTrace, $matches)) {
+            if (!empty($matches['trace_id'])) {
+                $context->traceId = new TraceId($matches['trace_id']);
+                $hasJasnitaTrace = true;
+            }
+
+            if (!empty($matches['span_id'])) {
+                $context->parentSpanId = new SpanId($matches['span_id']);
+                $hasJasnitaTrace = true;
+            }
         }
 
-        if ($parsedData['parentSpanId'] !== null) {
-            $context->parentSpanId = $parsedData['parentSpanId'];
+        $samplingContext = DynamicSamplingContext::fromHeader($baggage);
+
+        if ($hasJasnitaTrace && !$samplingContext->hasEntries()) {
+            // The request comes from an old SDK which does not support Dynamic Sampling.
+            // Propagate the Dynamic Sampling Context as is, but frozen, even without jasnita-* entries.
+            $samplingContext->freeze();
+            $context->dynamicSamplingContext = $samplingContext;
         }
 
-        if ($parsedData['parentSampled'] !== null) {
-            $context->parentSampled = $parsedData['parentSampled'];
-        }
-
-        if ($parsedData['dynamicSamplingContext'] !== null) {
-            $context->dynamicSamplingContext = $parsedData['dynamicSamplingContext'];
-        }
-
-        if ($parsedData['sampleRand'] !== null) {
-            $context->sampleRand = $parsedData['sampleRand'];
+        if ($hasJasnitaTrace && $samplingContext->hasEntries()) {
+            // The baggage header contains Dynamic Sampling Context data from an upstream SDK.
+            // Propagate this Dynamic Sampling Context.
+            $context->dynamicSamplingContext = $samplingContext;
         }
 
         return $context;

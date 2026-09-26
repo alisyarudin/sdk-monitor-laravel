@@ -19,7 +19,7 @@ final class CheckIn
     private $monitorSlug;
 
     /**
-     * @var CheckInStatus The status of the check-in
+     * @var \Jasnita\Monitor\Sdk\CheckInStatus The status of the check-in
      */
     private $status;
 
@@ -39,7 +39,7 @@ final class CheckIn
     private $duration;
 
     /**
-     * @var MonitorConfig|null The monitor configuration
+     * @var \Jasnita\Monitor\Sdk\MonitorConfig|null The monitor configuration
      */
     private $monitorConfig;
 
@@ -49,7 +49,7 @@ final class CheckIn
     public function __construct(
         string $monitorSlug,
         CheckInStatus $status,
-        ?string $id = null,
+        string $id = null,
         ?string $release = null,
         ?string $environment = null,
         $duration = null,
@@ -80,11 +80,9 @@ final class CheckIn
         return $this->monitorSlug;
     }
 
-    public function setMonitorSlug(string $monitorSlug): self
+    public function setMonitorSlug(string $monitorSlug): void
     {
         $this->monitorSlug = $monitorSlug;
-
-        return $this;
     }
 
     public function getStatus(): CheckInStatus
@@ -92,11 +90,9 @@ final class CheckIn
         return $this->status;
     }
 
-    public function setStatus(CheckInStatus $status): self
+    public function setStatus(CheckInStatus $status): void
     {
         $this->status = $status;
-
-        return $this;
     }
 
     public function getRelease(): ?string
@@ -104,11 +100,9 @@ final class CheckIn
         return $this->release;
     }
 
-    public function setRelease(string $release): self
+    public function setRelease(string $release): void
     {
         $this->release = $release;
-
-        return $this;
     }
 
     public function getEnvironment(): ?string
@@ -116,11 +110,9 @@ final class CheckIn
         return $this->environment;
     }
 
-    public function setEnvironment(string $environment): self
+    public function setEnvironment(string $environment): void
     {
         $this->environment = $environment;
-
-        return $this;
     }
 
     /**
@@ -134,11 +126,9 @@ final class CheckIn
     /**
      * @param int|float|null $duration The duration of the check-in in seconds
      */
-    public function setDuration($duration): self
+    public function setDuration($duration): void
     {
         $this->duration = $duration;
-
-        return $this;
     }
 
     public function getMonitorConfig(): ?MonitorConfig
@@ -146,10 +136,8 @@ final class CheckIn
         return $this->monitorConfig;
     }
 
-    public function setMonitorConfig(?MonitorConfig $monitorConfig): self
+    public function setMonitorConfig(?MonitorConfig $monitorConfig): void
     {
         $this->monitorConfig = $monitorConfig;
-
-        return $this;
     }
 }

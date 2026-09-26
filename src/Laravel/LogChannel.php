@@ -9,7 +9,12 @@ use Jasnita\Monitor\Sdk\State\HubInterface;
 
 class LogChannel extends LogManager
 {
-    public function __invoke(array $config = []): Logger
+    /**
+     * @param array $config
+     *
+     * @return Logger
+     */
+    public function __invoke(array $config): Logger
     {
         $handler = new JasnitaHandler(
             $this->app->make(HubInterface::class),

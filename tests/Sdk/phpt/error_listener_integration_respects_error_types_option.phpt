@@ -15,9 +15,10 @@ use Jasnita\Monitor\Sdk\ClientBuilder;
 use Jasnita\Monitor\Sdk\Event;
 use Jasnita\Monitor\Sdk\Integration\ErrorListenerIntegration;
 use Jasnita\Monitor\Sdk\Options;
+use Jasnita\Monitor\Sdk\Response;
+use Jasnita\Monitor\Sdk\ResponseStatus;
 use Jasnita\Monitor\Sdk\JasnitaSdk;
-use Jasnita\Monitor\Sdk\Transport\Result;
-use Jasnita\Monitor\Sdk\Transport\ResultStatus;
+use Jasnita\Monitor\Sdk\Transport\TransportFactoryInterface;
 use Jasnita\Monitor\Sdk\Transport\TransportInterface;
 
 $vendor = __DIR__;
@@ -28,19 +29,22 @@ while (!file_exists($vendor . '/vendor')) {
 
 require $vendor . '/vendor/autoload.php';
 
-error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
-
-$transport = new class implements TransportInterface {
-    public function send(Event $event): Result
+$transportFactory = new class implements TransportFactoryInterface {
+    public function create(Options $options): TransportInterface
     {
-        echo 'Transport called' . PHP_EOL;
+        return new class implements TransportInterface {
+            public function send(Event $event): PromiseInterface
+            {
+                echo 'Transport called' . PHP_EOL;
 
-        return new Result(ResultStatus::success());
-    }
+                return new FulfilledPromise(new Response(ResponseStatus::success()));
+            }
 
-    public function close(?int $timeout = null): Result
-    {
-        return new Result(ResultStatus::success());
+            public function close(?int $timeout = null): PromiseInterface
+            {
+                return new FulfilledPromise(true);
+            }
+        };
     }
 };
 
@@ -53,7 +57,7 @@ $options = new Options([
 ]);
 
 $client = (new ClientBuilder($options))
-    ->setTransport($transport)
+    ->setTransportFactory($transportFactory)
     ->getClient();
 
 JasnitaSdk::getCurrentHub()->bindClient($client);

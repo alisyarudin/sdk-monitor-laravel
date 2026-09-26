@@ -1,5 +1,11 @@
 {
-    "_catatan": "Versi hulu yang di-fork. Naikkan versinya lalu jalankan: php tools/rebrand.php",
-    "sentry-php": { "repo": "https://github.com/getsentry/sentry-php.git", "tag": "4.32.0" },
-    "sentry-laravel": { "repo": "https://github.com/getsentry/sentry-laravel.git", "tag": "4.28.0" }
+    "_catatan": "Jalur 1.x (Laravel 5.0\u20139, PHP 7.2+). Naikkan versinya lalu jalankan: php tools/rebrand.php",
+    "sentry-php": {
+        "repo": "https://github.com/getsentry/sentry-php.git",
+        "tag": "3.22.1"
+    },
+    "sentry-laravel": {
+        "repo": "https://github.com/getsentry/sentry-laravel.git",
+        "tag": "2.14.2"
+    }
 }

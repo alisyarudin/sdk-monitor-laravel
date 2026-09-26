@@ -20,12 +20,9 @@ use Jasnita\Monitor\Sdk\Options;
 use Jasnita\Monitor\Sdk\Severity;
 use Jasnita\Monitor\Sdk\State\Hub;
 use Jasnita\Monitor\Sdk\State\Scope;
-use Jasnita\Monitor\Sdk\Tests\StubLogger;
-use Jasnita\Monitor\Sdk\Tracing\DynamicSamplingContext;
 use Jasnita\Monitor\Sdk\Tracing\PropagationContext;
 use Jasnita\Monitor\Sdk\Tracing\SamplingContext;
 use Jasnita\Monitor\Sdk\Tracing\TransactionContext;
-use Jasnita\Monitor\Sdk\Tracing\TransactionMetadata;
 use Jasnita\Monitor\Sdk\Util\JasnitaUid;
 
 final class HubTest extends TestCase
@@ -241,7 +238,7 @@ final class HubTest extends TestCase
         $eventId = EventId::generate();
         $hub = new Hub();
 
-        $hub->configureScope(static function (Scope $scope) use ($propagationContext): void {
+        $hub->configureScope(function (Scope $scope) use ($propagationContext): void {
             $scope->setPropagationContext($propagationContext);
         });
 
@@ -300,7 +297,7 @@ final class HubTest extends TestCase
         $eventId = EventId::generate();
         $hub = new Hub();
 
-        $hub->configureScope(static function (Scope $scope) use ($propagationContext): void {
+        $hub->configureScope(function (Scope $scope) use ($propagationContext): void {
             $scope->setPropagationContext($propagationContext);
         });
 
@@ -355,7 +352,7 @@ final class HubTest extends TestCase
         $eventId = EventId::generate();
         $hub = new Hub();
 
-        $hub->configureScope(static function (Scope $scope) use ($propagationContext): void {
+        $hub->configureScope(function (Scope $scope) use ($propagationContext): void {
             $scope->setPropagationContext($propagationContext);
         });
 
@@ -569,27 +566,6 @@ final class HubTest extends TestCase
         });
     }
 
-    public function testBeforeBreadcrumbExceptionDropsBreadcrumbAndIsLogged(): void
-    {
-        StubLogger::$logs = [];
-        $options = new Options([
-            'before_breadcrumb' => static function (): void {
-                throw new \RuntimeException('test');
-            },
-            'logger' => StubLogger::getInstance(),
-        ]);
-        $client = $this->createMock(ClientInterface::class);
-        $client->method('getOptions')->willReturn($options);
-        $hub = new Hub($client);
-
-        $this->assertFalse($hub->addBreadcrumb(new Breadcrumb(Breadcrumb::LEVEL_ERROR, Breadcrumb::TYPE_ERROR, 'error_reporting')));
-        $this->assertSame([[
-            'level' => 'error',
-            'message' => 'The "before_breadcrumb" callback failed with exception: "test".',
-            'context' => [],
-        ]], StubLogger::$logs);
-    }
-
     public function testAddBreadcrumbStoresBreadcrumbReturnedByBeforeBreadcrumbCallback(): void
     {
         $callbackInvoked = false;
@@ -656,42 +632,6 @@ final class HubTest extends TestCase
         $transaction = $hub->startTransaction($transactionContext);
 
         $this->assertSame($expectedSampled, $transaction->getSampled());
-    }
-
-    public function testTracesSamplerExceptionDropsTransactionAndIsLogged(): void
-    {
-        StubLogger::$logs = [];
-        $options = new Options([
-            'logger' => StubLogger::getInstance(),
-            'traces_sampler' => static function (): void {
-                throw new \RuntimeException('test');
-            },
-        ]);
-        $client = $this->createMock(ClientInterface::class);
-        $client->method('getOptions')->willReturn($options);
-
-        $this->assertFalse((new Hub($client))->startTransaction(new TransactionContext())->getSampled());
-        $this->assertContains([
-            'level' => 'error',
-            'message' => 'The "traces_sampler" callback failed with exception: "test".',
-            'context' => [],
-        ], StubLogger::$logs);
-    }
-
-    public function testStartTransactionIgnoresBaggageSampleRateWithoutJasnitaTrace(): void
-    {
-        $client = $this->createMock(ClientInterface::class);
-        $client->expects($this->once())
-            ->method('getOptions')
-            ->willReturn(new Options([
-                'traces_sample_rate' => 0.0,
-            ]));
-
-        $hub = new Hub($client);
-        $transactionContext = TransactionContext::fromHeaders('', 'jasnita-sample_rate=1');
-        $transaction = $hub->startTransaction($transactionContext);
-
-        $this->assertFalse($transaction->getSampled());
     }
 
     public static function startTransactionDataProvider(): iterable
@@ -802,17 +742,6 @@ final class HubTest extends TestCase
             false,
         ];
 
-        yield 'Invalid incoming sample_rand is ignored' => [
-            new Options([
-                'traces_sample_rate' => 1.0,
-            ]),
-            TransactionContext::fromHeaders(
-                '566e3688a61d4bc888951642d6f14a19-566e3688a61d4bc8',
-                'jasnita-sample_rand=2.0'
-            ),
-            true,
-        ];
-
         yield 'Out of range sample rate returned from traces_sampler (lower than minimum)' => [
             new Options([
                 'traces_sampler' => static function (): float {
@@ -876,170 +805,6 @@ final class HubTest extends TestCase
         $hub->startTransaction(new TransactionContext(), $customSamplingContext);
     }
 
-    public function testProfilesSamplerExceptionDropsProfileAndIsLogged(): void
-    {
-        StubLogger::$logs = [];
-        $options = new Options([
-            'logger' => StubLogger::getInstance(),
-            'profiles_sampler' => static function (): void {
-                throw new \RuntimeException('test');
-            },
-            'traces_sample_rate' => 1.0,
-        ]);
-        $client = $this->createMock(ClientInterface::class);
-        $client->method('getOptions')->willReturn($options);
-        $transaction = (new Hub($client))->startTransaction(new TransactionContext());
-
-        $this->assertNull($transaction->getProfiler());
-        $this->assertContains([
-            'level' => 'error',
-            'message' => 'The "profiles_sampler" callback failed with exception: "test".',
-            'context' => [],
-        ], StubLogger::$logs);
-    }
-
-    public function testStartTransactionStartsProfilerWithProfilesSampler(): void
-    {
-        $client = $this->createMock(ClientInterface::class);
-        $client->expects($this->exactly(2))
-            ->method('getOptions')
-            ->willReturn(new Options([
-                'traces_sample_rate' => 1.0,
-                'profiles_sampler' => static function (): float {
-                    return 1.0;
-                },
-            ]));
-
-        $hub = new Hub($client);
-        $transaction = $hub->startTransaction(new TransactionContext());
-
-        $this->assertTrue($transaction->getSampled());
-        $this->assertNotNull($transaction->getProfiler());
-    }
-
-    public function testStartTransactionDoesNotStartProfilerWhenProfilesSamplerReturnsZero(): void
-    {
-        $client = $this->createMock(ClientInterface::class);
-        $client->expects($this->once())
-            ->method('getOptions')
-            ->willReturn(new Options([
-                'traces_sample_rate' => 1.0,
-                'profiles_sampler' => static function (): float {
-                    return 0.0;
-                },
-            ]));
-
-        $hub = new Hub($client);
-        $transaction = $hub->startTransaction(new TransactionContext());
-
-        $this->assertTrue($transaction->getSampled());
-        $this->assertNull($transaction->getProfiler());
-    }
-
-    public function testStartTransactionPrefersProfilesSamplerOverProfilesSampleRate(): void
-    {
-        $client = $this->createMock(ClientInterface::class);
-        $client->expects($this->once())
-            ->method('getOptions')
-            ->willReturn(new Options([
-                'traces_sample_rate' => 1.0,
-                'profiles_sample_rate' => 1.0,
-                'profiles_sampler' => static function (): float {
-                    return 0.0;
-                },
-            ]));
-
-        $hub = new Hub($client);
-        $transaction = $hub->startTransaction(new TransactionContext());
-
-        $this->assertTrue($transaction->getSampled());
-        $this->assertNull($transaction->getProfiler());
-    }
-
-    public function testStartTransactionWithProfilesSamplerReceivesCustomSamplingContext(): void
-    {
-        $customSamplingContext = ['a' => 'b'];
-
-        $client = $this->createMock(ClientInterface::class);
-        $client->expects($this->once())
-            ->method('getOptions')
-            ->willReturn(new Options([
-                'traces_sample_rate' => 1.0,
-                'profiles_sampler' => function (SamplingContext $samplingContext) use ($customSamplingContext): float {
-                    $this->assertSame($samplingContext->getAdditionalContext(), $customSamplingContext);
-
-                    return 0.0;
-                },
-            ]));
-
-        $hub = new Hub($client);
-        $hub->startTransaction(new TransactionContext(), $customSamplingContext);
-    }
-
-    public function testStartTransactionDoesNotStartProfilerWhenProfilesSamplerReturnsInvalidValue(): void
-    {
-        $client = $this->createMock(ClientInterface::class);
-        $client->expects($this->once())
-            ->method('getOptions')
-            ->willReturn(new Options([
-                'traces_sample_rate' => 1.0,
-                'profiles_sampler' => static function (): string {
-                    return 'foo';
-                },
-            ]));
-
-        $hub = new Hub($client);
-        $transaction = $hub->startTransaction(new TransactionContext());
-
-        $this->assertTrue($transaction->getSampled());
-        $this->assertNull($transaction->getProfiler());
-    }
-
-    public function testStartTransactionDoesNotCallProfilesSamplerWhenTransactionIsNotSampled(): void
-    {
-        $profilesSamplerInvoked = false;
-
-        $client = $this->createMock(ClientInterface::class);
-        $client->expects($this->once())
-            ->method('getOptions')
-            ->willReturn(new Options([
-                'traces_sample_rate' => 0.0,
-                'profiles_sampler' => static function () use (&$profilesSamplerInvoked): float {
-                    $profilesSamplerInvoked = true;
-
-                    return 1.0;
-                },
-            ]));
-
-        $hub = new Hub($client);
-        $transaction = $hub->startTransaction(new TransactionContext());
-
-        $this->assertFalse($transaction->getSampled());
-        $this->assertFalse($profilesSamplerInvoked);
-        $this->assertNull($transaction->getProfiler());
-    }
-
-    public function testStartTransactionUpdatesTheDscSampleRate(): void
-    {
-        $client = $this->createMock(ClientInterface::class);
-        $client->expects($this->once())
-            ->method('getOptions')
-            ->willReturn(new Options([
-                'traces_sampler' => static function (SamplingContext $samplingContext): float {
-                    return 1.0;
-                },
-            ]));
-
-        $hub = new Hub($client);
-
-        $dsc = DynamicSamplingContext::fromHeader('jasnita-trace_id=d49d9bf66f13450b81f65bc51cf49c03,jasnita-public_key=public');
-        $transactionMetaData = new TransactionMetadata(null, $dsc);
-        $transactionContext = new TransactionContext(TransactionContext::DEFAULT_NAME, null, $transactionMetaData);
-
-        $transaction = $hub->startTransaction($transactionContext);
-        $this->assertSame('1', $transaction->getMetadata()->getDynamicSamplingContext()->get('sample_rate'));
-    }
-
     public function testGetTransactionReturnsInstanceSetOnTheScopeIfTransactionIsNotSampled(): void
     {
         $client = $this->createMock(ClientInterface::class);
@@ -1085,34 +850,5 @@ final class HubTest extends TestCase
         $hub->startTransaction(new TransactionContext(TransactionContext::DEFAULT_NAME, true));
 
         $this->assertNull($hub->getTransaction());
-    }
-
-    public function testEventTraceContextIsAlwaysFilled(): void
-    {
-        $hub = new Hub();
-
-        $event = Event::createEvent();
-
-        $hub->configureScope(function (Scope $scope) use ($event): void {
-            $event = $scope->applyToEvent($event);
-
-            $this->assertNotEmpty($event->getContexts()['trace']);
-        });
-    }
-
-    public function testEventTraceContextIsNotOverridenWhenPresent(): void
-    {
-        $hub = new Hub();
-
-        $traceContext = ['foo' => 'bar'];
-
-        $event = Event::createEvent();
-        $event->setContext('trace', $traceContext);
-
-        $hub->configureScope(function (Scope $scope) use ($event, $traceContext): void {
-            $event = $scope->applyToEvent($event);
-
-            $this->assertEquals($event->getContexts()['trace'], $traceContext);
-        });
     }
 }

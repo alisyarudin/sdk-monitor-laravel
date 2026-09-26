@@ -7,7 +7,7 @@ namespace Jasnita\Monitor\Sdk\Exception;
 /**
  * This exception is thrown when an issue is preventing the creation of an {@see Event}.
  */
-class EventCreationException extends \RuntimeException
+class EventCreationException extends \RuntimeException implements ExceptionInterface
 {
     /**
      * EventCreationException constructor.

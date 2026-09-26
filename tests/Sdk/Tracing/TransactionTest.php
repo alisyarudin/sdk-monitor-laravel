@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jasnita\Monitor\Sdk\Tests\Tracing;
 
+use Generator;
 use PHPUnit\Framework\TestCase;
 use Jasnita\Monitor\Sdk\ClientInterface;
 use Jasnita\Monitor\Sdk\Event;
@@ -12,10 +13,11 @@ use Jasnita\Monitor\Sdk\EventType;
 use Jasnita\Monitor\Sdk\Options;
 use Jasnita\Monitor\Sdk\State\Hub;
 use Jasnita\Monitor\Sdk\State\HubInterface;
-use Jasnita\Monitor\Sdk\Tests\TestUtil\ClockMock;
+use Jasnita\Monitor\Sdk\Tracing\Span;
 use Jasnita\Monitor\Sdk\Tracing\SpanContext;
 use Jasnita\Monitor\Sdk\Tracing\Transaction;
 use Jasnita\Monitor\Sdk\Tracing\TransactionContext;
+use Symfony\Bridge\PhpUnit\ClockMock;
 
 /**
  * @group time-sensitive
@@ -27,10 +29,10 @@ final class TransactionTest extends TestCase
         ClockMock::withClockMock(1600640877);
 
         $expectedEventId = null;
-        $transactionContext = TransactionContext::make()
-            ->setTags(['ios_version' => '4.0'])
-            ->setSampled(true)
-            ->setStartTimestamp(1600640865);
+        $transactionContext = new TransactionContext();
+        $transactionContext->setTags(['ios_version' => '4.0']);
+        $transactionContext->setSampled(true);
+        $transactionContext->setStartTimestamp(1600640865);
 
         $client = $this->createMock(ClientInterface::class);
         $client->expects($this->once())
@@ -85,18 +87,6 @@ final class TransactionTest extends TestCase
         $transaction->finish();
     }
 
-    public function testFluentApi(): void
-    {
-        $transaction = new Transaction(TransactionContext::make());
-        $tags = ['foo' => 'bar'];
-        $name = 'baz';
-        $transaction->setTags($tags)
-          ->setName($name)
-          ->finish();
-        $this->assertSame($tags, $transaction->getTags());
-        $this->assertSame($name, $transaction->getName());
-    }
-
     /**
      * @dataProvider parentTransactionContextDataProvider
      */
@@ -117,7 +107,7 @@ final class TransactionTest extends TestCase
         $this->assertSame($expectedSampled, $transaction->getSampled());
     }
 
-    public static function parentTransactionContextDataProvider(): \Generator
+    public static function parentTransactionContextDataProvider(): Generator
     {
         yield [
             new TransactionContext(TransactionContext::DEFAULT_NAME, true),
@@ -160,7 +150,7 @@ final class TransactionTest extends TestCase
         $this->assertSame($expectedSampled, $transaction->getSampled());
     }
 
-    public function parentTransactionContextDataProviderDisabled(): \Generator
+    public function parentTransactionContextDataProviderDisabled(): Generator
     {
         yield [
             new TransactionContext(TransactionContext::DEFAULT_NAME, true),

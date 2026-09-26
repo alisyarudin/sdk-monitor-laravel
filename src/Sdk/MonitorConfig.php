@@ -12,12 +12,12 @@ final class MonitorConfig
     private $schedule;
 
     /**
-     * @var int|null The check-in margin in minutes
+     * @var int|null The check-in margin in seconds
      */
     private $checkinMargin;
 
     /**
-     * @var int|null The maximum runtime in minutes
+     * @var int|null The maximum runtime in seconds
      */
     private $maxRuntime;
 
@@ -26,30 +26,16 @@ final class MonitorConfig
      */
     private $timezone;
 
-    /**
-     * @var int|null The number of consecutive failed check-ins it takes before an issue is created
-     */
-    private $failureIssueThreshold;
-
-    /**
-     * @var int|null The number of consecutive OK check-ins it takes before an issue is resolved
-     */
-    private $recoveryThreshold;
-
     public function __construct(
         MonitorSchedule $schedule,
         ?int $checkinMargin = null,
         ?int $maxRuntime = null,
-        ?string $timezone = null,
-        ?int $failureIssueThreshold = null,
-        ?int $recoveryThreshold = null
+        ?string $timezone = null
     ) {
         $this->schedule = $schedule;
         $this->checkinMargin = $checkinMargin;
         $this->maxRuntime = $maxRuntime;
         $this->timezone = $timezone;
-        $this->failureIssueThreshold = $failureIssueThreshold;
-        $this->recoveryThreshold = $recoveryThreshold;
     }
 
     public function getSchedule(): MonitorSchedule
@@ -100,30 +86,6 @@ final class MonitorConfig
         return $this;
     }
 
-    public function getFailureRecoveryThreshold(): ?int
-    {
-        return $this->failureIssueThreshold;
-    }
-
-    public function setFailureRecoveryThreshold(?int $failureIssueThreshold): self
-    {
-        $this->failureIssueThreshold = $failureIssueThreshold;
-
-        return $this;
-    }
-
-    public function getRecoveryThreshold(): ?int
-    {
-        return $this->recoveryThreshold;
-    }
-
-    public function setRecoveryThreshold(?int $recoveryThreshold): self
-    {
-        $this->recoveryThreshold = $recoveryThreshold;
-
-        return $this;
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -134,8 +96,6 @@ final class MonitorConfig
             'checkin_margin' => $this->checkinMargin,
             'max_runtime' => $this->maxRuntime,
             'timezone' => $this->timezone,
-            'failure_issue_threshold' => $this->failureIssueThreshold,
-            'recovery_threshold' => $this->recoveryThreshold,
         ];
     }
 }

@@ -32,7 +32,7 @@ final class IntegrationRegistry
      */
     public static function getInstance(): self
     {
-        if (self::$instance === null) {
+        if (null === self::$instance) {
             self::$instance = new self();
         }
 
@@ -51,42 +51,29 @@ final class IntegrationRegistry
     public function setupIntegrations(Options $options, LoggerInterface $logger): array
     {
         $integrations = [];
-        $installed = [];
 
         foreach ($this->getIntegrationsToSetup($options) as $integration) {
-            $integrationName = \get_class($integration);
+            $integrations[\get_class($integration)] = $integration;
 
-            $integrations[$integrationName] = $integration;
-
-            if ($this->setupIntegration($integration, $options)) {
-                $installed[] = $integrationName;
-            }
-        }
-
-        if (\count($installed) > 0) {
-            $logger->debug(\sprintf('The "%s" integration(s) have been installed.', implode(', ', $installed)));
+            $this->setupIntegration($integration, $logger);
         }
 
         return $integrations;
     }
 
-    private function setupIntegration(IntegrationInterface $integration, Options $options): bool
+    private function setupIntegration(IntegrationInterface $integration, LoggerInterface $logger): void
     {
         $integrationName = \get_class($integration);
 
         if (isset($this->integrations[$integrationName])) {
-            return false;
-        }
-
-        if ($integration instanceof OptionAwareIntegrationInterface) {
-            $integration->setOptions($options);
+            return;
         }
 
         $integration->setupOnce();
 
         $this->integrations[$integrationName] = true;
 
-        return true;
+        $logger->debug(sprintf('The "%s" integration has been installed.', $integrationName));
     }
 
     /**
@@ -123,7 +110,7 @@ final class IntegrationRegistry
             $integrations = $userIntegrations($defaultIntegrations);
 
             if (!\is_array($integrations)) {
-                throw new \UnexpectedValueException(\sprintf('Expected the callback set for the "integrations" option to return a list of integrations. Got: "%s".', get_debug_type($integrations)));
+                throw new \UnexpectedValueException(sprintf('Expected the callback set for the "integrations" option to return a list of integrations. Got: "%s".', get_debug_type($integrations)));
             }
         }
 
@@ -147,7 +134,7 @@ final class IntegrationRegistry
             new ModulesIntegration(),
         ];
 
-        if ($options->getDsn() !== null || $options->isSpotlightEnabled()) {
+        if (null !== $options->getDsn()) {
             array_unshift($integrations, new ExceptionListenerIntegration(), new ErrorListenerIntegration(), new FatalErrorListenerIntegration());
         }
 

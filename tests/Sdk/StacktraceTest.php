@@ -48,7 +48,7 @@ final class StacktraceTest extends TestCase
         ];
 
         yield [
-            [new class {
+            [new class() {
             }],
             '/^Expected an instance of the "Jasnita\\\\Monitor\\\\Sdk\\\\Frame" class\. Got: "class@anonymous.*"\.$/',
         ];
@@ -74,7 +74,7 @@ final class StacktraceTest extends TestCase
      */
     public function testRemoveFrame(int $index, ?string $expectedExceptionMessage): void
     {
-        if ($expectedExceptionMessage !== null) {
+        if (null !== $expectedExceptionMessage) {
             $this->expectException(\OutOfBoundsException::class);
             $this->expectExceptionMessage($expectedExceptionMessage);
         }

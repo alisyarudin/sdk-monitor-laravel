@@ -3,32 +3,35 @@
 namespace Jasnita\Monitor\Laravel\Tests\Tracing;
 
 use ReflectionClass;
+use Jasnita\Monitor\Laravel\Tests\JasnitaLaravelTestCase;
+use Jasnita\Monitor\Laravel\Tracing\BacktraceHelper;
 use RuntimeException;
-use Jasnita\Monitor\Laravel\Tests\TestCase;
+use Jasnita\Monitor\Laravel\Tests\ExpectsException;
 use Jasnita\Monitor\Laravel\Tracing\EventHandler;
 
-class EventHandlerTest extends TestCase
+class EventHandlerTest extends JasnitaLaravelTestCase
 {
-    public function testMissingEventHandlerThrowsException(): void
+    use ExpectsException;
+
+    public function test_missing_event_handler_throws_exception()
     {
-        $this->expectException(RuntimeException::class);
+        $this->safeExpectException(RuntimeException::class);
 
-        $handler = new EventHandler([]);
+        $handler = new EventHandler($this->app, $this->app->make(BacktraceHelper::class), []);
 
-        /** @noinspection PhpUndefinedMethodInspection */
         $handler->thisIsNotAHandlerAndShouldThrowAnException();
     }
 
-    public function testAllMappedEventHandlersExist(): void
+    public function test_all_mapped_event_handlers_exist()
     {
         $this->tryAllEventHandlerMethods(
-            $this->getEventHandlerMapFromEventHandler()
+            $this->getStaticPropertyValueFromClass(EventHandler::class, 'eventHandlerMap')
         );
     }
 
     private function tryAllEventHandlerMethods(array $methods): void
     {
-        $handler = new EventHandler([]);
+        $handler = new EventHandler($this->app, $this->app->make(BacktraceHelper::class), []);
 
         $methods = array_map(static function ($method) {
             return "{$method}Handler";
@@ -39,12 +42,12 @@ class EventHandlerTest extends TestCase
         }
     }
 
-    private function getEventHandlerMapFromEventHandler()
+    private function getStaticPropertyValueFromClass($className, $attributeName)
     {
-        $class = new ReflectionClass(EventHandler::class);
+        $class = new ReflectionClass($className);
 
         $attributes = $class->getStaticProperties();
 
-        return $attributes['eventHandlerMap'];
+        return $attributes[$attributeName];
     }
 }

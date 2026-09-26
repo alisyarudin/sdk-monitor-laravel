@@ -53,11 +53,9 @@ final class ExceptionDataBag
      *
      * @param string $type The exception type
      */
-    public function setType(string $type): self
+    public function setType(string $type): void
     {
         $this->type = $type;
-
-        return $this;
     }
 
     /**
@@ -71,11 +69,9 @@ final class ExceptionDataBag
     /**
      * Sets the value of the exception.
      */
-    public function setValue(string $value): self
+    public function setValue(string $value): void
     {
         $this->value = $value;
-
-        return $this;
     }
 
     /**
@@ -91,11 +87,9 @@ final class ExceptionDataBag
      *
      * @param Stacktrace $stacktrace The stacktrace
      */
-    public function setStacktrace(Stacktrace $stacktrace): self
+    public function setStacktrace(Stacktrace $stacktrace): void
     {
         $this->stacktrace = $stacktrace;
-
-        return $this;
     }
 
     /**
@@ -111,10 +105,8 @@ final class ExceptionDataBag
      *
      * @param ExceptionMechanism|null $mechanism The mechanism that created this exception
      */
-    public function setMechanism(?ExceptionMechanism $mechanism): self
+    public function setMechanism(?ExceptionMechanism $mechanism): void
     {
         $this->mechanism = $mechanism;
-
-        return $this;
     }
 }

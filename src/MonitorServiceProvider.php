@@ -6,9 +6,9 @@ use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\ServiceProvider;
 use Jasnita\Monitor\Console\InstallCommand;
 use Jasnita\Monitor\Console\TestCommand;
-use Jasnita\Monitor\Laravel\Integration;
 use Jasnita\Monitor\Laravel\ServiceProvider as SdkServiceProvider;
 use Jasnita\Monitor\Laravel\Tracing\ServiceProvider as SdkTracingServiceProvider;
+use Jasnita\Monitor\Sdk\State\HubInterface;
 use Jasnita\Monitor\Sdk\State\Scope;
 use Throwable;
 
@@ -78,10 +78,9 @@ class MonitorServiceProvider extends ServiceProvider
             'traces_sample_rate' => isset($m['traces_sample_rate']) ? (float) $m['traces_sample_rate'] : 0.1,
             'send_default_pii'   => ! empty($m['send_default_pii']),
             'ignore_exceptions'  => isset($m['ignore_exceptions']) ? (array) $m['ignore_exceptions'] : [],
-            // Server Jasnita Monitor belum memproses log & metrik; SDK tidak
-            // perlu mengirim data yang akan dibuang.
-            'enable_logs'        => false,
-            'enable_metrics'     => false,
+            // Jalur 1.x: JANGAN tambah opsi yang tidak dikenal SDK inti 3.x
+            // (mis. enable_logs/enable_metrics milik v2) — OptionsResolver
+            // menolaknya dan aplikasi gagal start.
         ];
 
         $advanced = isset($m['advanced']) && is_array($m['advanced']) ? $m['advanced'] : [];
@@ -112,8 +111,8 @@ class MonitorServiceProvider extends ServiceProvider
      * Integration::handles() di bootstrap/app.php Laravel 11. Memasangnya di
      * sini berarti klien tidak perlu mengubah berkas apa pun.
      *
-     * Laravel 6/7 belum punya reportable(): pasang manual di Handler::report()
-     * (lihat README).
+     * Laravel 5.x–7 belum punya reportable(): pasang manual di
+     * Handler::report() (lihat README).
      */
     private function registerExceptionReporter()
     {
@@ -124,7 +123,10 @@ class MonitorServiceProvider extends ServiceProvider
             }
             $installed = true;
             $handler->reportable(function (Throwable $e) {
-                Integration::captureUnhandledException($e);
+                // Jalur 1.x: SDK terdaftar di container sebagai HubInterface.
+                if ($this->app->bound(HubInterface::class)) {
+                    $this->app->make(HubInterface::class)->captureException($e);
+                }
             });
         };
 

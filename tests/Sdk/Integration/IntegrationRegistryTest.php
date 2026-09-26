@@ -31,31 +31,33 @@ final class IntegrationRegistryTest extends TestCase
     /**
      * @dataProvider setupIntegrationsDataProvider
      */
-    public function testSetupIntegrations(Options $options, array $expectedIntegrations): void
+    public function testSetupIntegrations(Options $options, array $expectedDebugMessages, array $expectedIntegrations): void
     {
         $logger = $this->createMock(LoggerInterface::class);
-
-        if (\count($expectedIntegrations) > 0) {
-            $logger->expects($this->once())
-                ->method('debug')
-                ->with(\sprintf('The "%s" integration(s) have been installed.', implode(', ', array_keys($expectedIntegrations))), []);
-        } else {
-            $logger->expects($this->never())
-                ->method('debug');
-        }
+        $logger->expects($this->exactly(\count($expectedDebugMessages)))
+            ->method('debug')
+            ->withConsecutive(...array_map(
+                static function (string $debugMessage): array {
+                    return [
+                        $debugMessage,
+                        [],
+                    ];
+                },
+                $expectedDebugMessages
+            ));
 
         $this->assertEquals($expectedIntegrations, IntegrationRegistry::getInstance()->setupIntegrations($options, $logger));
     }
 
     public static function setupIntegrationsDataProvider(): iterable
     {
-        $integration1 = new class implements IntegrationInterface {
+        $integration1 = new class() implements IntegrationInterface {
             public function setupOnce(): void
             {
             }
         };
 
-        $integration2 = new class implements IntegrationInterface {
+        $integration2 = new class() implements IntegrationInterface {
             public function setupOnce(): void
             {
             }
@@ -70,16 +72,27 @@ final class IntegrationRegistryTest extends TestCase
                 'default_integrations' => false,
             ]),
             [],
+            [],
         ];
 
         yield 'Default integrations and no user integrations' => [
-            $options = new Options([
+            new Options([
                 'dsn' => 'http://public@example.com/jasnita/1',
                 'default_integrations' => true,
             ]),
             [
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ExceptionListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ErrorListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\FatalErrorListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\RequestIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\TransactionIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\FrameContextifierIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\EnvironmentIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ModulesIntegration" integration has been installed.',
+            ],
+            [
                 ExceptionListenerIntegration::class => new ExceptionListenerIntegration(),
-                ErrorListenerIntegration::class => ErrorListenerIntegration::make($options),
+                ErrorListenerIntegration::class => new ErrorListenerIntegration(),
                 FatalErrorListenerIntegration::class => new FatalErrorListenerIntegration(),
                 RequestIntegration::class => new RequestIntegration(),
                 TransactionIntegration::class => new TransactionIntegration(),
@@ -98,13 +111,17 @@ final class IntegrationRegistryTest extends TestCase
                 ],
             ]),
             [
+                "The \"$integration1ClassName\" integration has been installed.",
+                "The \"$integration2ClassName\" integration has been installed.",
+            ],
+            [
                 $integration1ClassName => $integration1,
                 $integration2ClassName => $integration2,
             ],
         ];
 
         yield 'Default integrations and some user integrations' => [
-            $options = new Options([
+            new Options([
                 'dsn' => 'http://public@example.com/jasnita/1',
                 'default_integrations' => true,
                 'integrations' => [
@@ -113,8 +130,20 @@ final class IntegrationRegistryTest extends TestCase
                 ],
             ]),
             [
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ExceptionListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ErrorListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\FatalErrorListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\RequestIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\TransactionIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\FrameContextifierIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\EnvironmentIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ModulesIntegration" integration has been installed.',
+                "The \"$integration1ClassName\" integration has been installed.",
+                "The \"$integration2ClassName\" integration has been installed.",
+            ],
+            [
                 ExceptionListenerIntegration::class => new ExceptionListenerIntegration(),
-                ErrorListenerIntegration::class => ErrorListenerIntegration::make($options),
+                ErrorListenerIntegration::class => new ErrorListenerIntegration(),
                 FatalErrorListenerIntegration::class => new FatalErrorListenerIntegration(),
                 RequestIntegration::class => new RequestIntegration(),
                 TransactionIntegration::class => new TransactionIntegration(),
@@ -127,7 +156,7 @@ final class IntegrationRegistryTest extends TestCase
         ];
 
         yield 'Default integrations and some user integrations, one of which is also a default integration' => [
-            $options = new Options([
+            new Options([
                 'dsn' => 'http://public@example.com/jasnita/1',
                 'default_integrations' => true,
                 'integrations' => [
@@ -136,8 +165,19 @@ final class IntegrationRegistryTest extends TestCase
                 ],
             ]),
             [
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ExceptionListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ErrorListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\FatalErrorListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\RequestIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\FrameContextifierIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\EnvironmentIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ModulesIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\TransactionIntegration" integration has been installed.',
+                "The \"$integration1ClassName\" integration has been installed.",
+            ],
+            [
                 ExceptionListenerIntegration::class => new ExceptionListenerIntegration(),
-                ErrorListenerIntegration::class => ErrorListenerIntegration::make($options),
+                ErrorListenerIntegration::class => new ErrorListenerIntegration(),
                 FatalErrorListenerIntegration::class => new FatalErrorListenerIntegration(),
                 RequestIntegration::class => new RequestIntegration(),
                 FrameContextifierIntegration::class => new FrameContextifierIntegration(),
@@ -149,7 +189,7 @@ final class IntegrationRegistryTest extends TestCase
         ];
 
         yield 'Default integrations and one user integration, the ModulesIntegration is also a default integration' => [
-            $options = new Options([
+            new Options([
                 'dsn' => 'http://public@example.com/jasnita/1',
                 'default_integrations' => true,
                 'integrations' => [
@@ -157,8 +197,18 @@ final class IntegrationRegistryTest extends TestCase
                 ],
             ]),
             [
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ExceptionListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ErrorListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\FatalErrorListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\RequestIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\TransactionIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\FrameContextifierIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\EnvironmentIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ModulesIntegration" integration has been installed.',
+            ],
+            [
                 ExceptionListenerIntegration::class => new ExceptionListenerIntegration(),
-                ErrorListenerIntegration::class => ErrorListenerIntegration::make($options),
+                ErrorListenerIntegration::class => new ErrorListenerIntegration(),
                 FatalErrorListenerIntegration::class => new FatalErrorListenerIntegration(),
                 RequestIntegration::class => new RequestIntegration(),
                 TransactionIntegration::class => new TransactionIntegration(),
@@ -177,6 +227,9 @@ final class IntegrationRegistryTest extends TestCase
                 ],
             ]),
             [
+                "The \"$integration1ClassName\" integration has been installed.",
+            ],
+            [
                 $integration1ClassName => $integration1,
             ],
         ];
@@ -189,10 +242,11 @@ final class IntegrationRegistryTest extends TestCase
                 },
             ]),
             [],
+            [],
         ];
 
         yield 'Default integrations and a callable as user integrations' => [
-            $options = new Options([
+            new Options([
                 'dsn' => 'http://public@example.com/jasnita/1',
                 'default_integrations' => true,
                 'integrations' => static function (array $defaultIntegrations): array {
@@ -200,8 +254,18 @@ final class IntegrationRegistryTest extends TestCase
                 },
             ]),
             [
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ExceptionListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ErrorListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\FatalErrorListenerIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\RequestIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\TransactionIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\FrameContextifierIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\EnvironmentIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ModulesIntegration" integration has been installed.',
+            ],
+            [
                 ExceptionListenerIntegration::class => new ExceptionListenerIntegration(),
-                ErrorListenerIntegration::class => ErrorListenerIntegration::make($options),
+                ErrorListenerIntegration::class => new ErrorListenerIntegration(),
                 FatalErrorListenerIntegration::class => new FatalErrorListenerIntegration(),
                 RequestIntegration::class => new RequestIntegration(),
                 TransactionIntegration::class => new TransactionIntegration(),
@@ -219,6 +283,13 @@ final class IntegrationRegistryTest extends TestCase
                     return $defaultIntegrations;
                 },
             ]),
+            [
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\RequestIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\TransactionIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\FrameContextifierIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\EnvironmentIntegration" integration has been installed.',
+                'The "Jasnita\\Monitor\\Sdk\\Integration\\ModulesIntegration" integration has been installed.',
+            ],
             [
                 RequestIntegration::class => new RequestIntegration(),
                 TransactionIntegration::class => new TransactionIntegration(),

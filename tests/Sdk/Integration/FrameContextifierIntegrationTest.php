@@ -15,7 +15,6 @@ use Jasnita\Monitor\Sdk\Options;
 use Jasnita\Monitor\Sdk\JasnitaSdk;
 use Jasnita\Monitor\Sdk\Stacktrace;
 use Jasnita\Monitor\Sdk\State\Scope;
-
 use function Jasnita\Monitor\Sdk\withScope;
 
 final class FrameContextifierIntegrationTest extends TestCase
@@ -160,8 +159,8 @@ final class FrameContextifierIntegrationTest extends TestCase
     {
         $fileContent = file_get_contents($file);
 
-        if ($fileContent === false) {
-            throw new \RuntimeException(\sprintf('The fixture file at path "%s" could not be read.', $file));
+        if (false === $fileContent) {
+            throw new \RuntimeException(sprintf('The fixture file at path "%s" could not be read.', $file));
         }
 
         return $fileContent;

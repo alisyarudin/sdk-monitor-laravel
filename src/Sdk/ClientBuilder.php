@@ -4,18 +4,21 @@ declare(strict_types=1);
 
 namespace Jasnita\Monitor\Sdk;
 
+use Http\Discovery\Psr17FactoryDiscovery;
 use Psr\Log\LoggerInterface;
-use Jasnita\Monitor\Sdk\HttpClient\HttpClient;
-use Jasnita\Monitor\Sdk\HttpClient\HttpClientInterface;
-use Jasnita\Monitor\Sdk\Serializer\PayloadSerializer;
+use Jasnita\Monitor\Sdk\HttpClient\HttpClientFactory;
 use Jasnita\Monitor\Sdk\Serializer\RepresentationSerializerInterface;
-use Jasnita\Monitor\Sdk\Transport\HttpTransport;
+use Jasnita\Monitor\Sdk\Serializer\SerializerInterface;
+use Jasnita\Monitor\Sdk\Transport\DefaultTransportFactory;
+use Jasnita\Monitor\Sdk\Transport\TransportFactoryInterface;
 use Jasnita\Monitor\Sdk\Transport\TransportInterface;
 
 /**
- * A configurable builder for Client objects.
+ * The default implementation of {@link ClientBuilderInterface}.
+ *
+ * @author Stefano Arlandini <sarlandini@alice.it>
  */
-final class ClientBuilder
+final class ClientBuilder implements ClientBuilderInterface
 {
     /**
      * @var Options The client options
@@ -23,14 +26,19 @@ final class ClientBuilder
     private $options;
 
     /**
+     * @var TransportFactoryInterface|null The transport factory
+     */
+    private $transportFactory;
+
+    /**
      * @var TransportInterface|null The transport
      */
     private $transport;
 
     /**
-     * @var HttpClientInterface|null The HTTP client
+     * @var SerializerInterface|null The serializer to be injected in the client
      */
-    private $httpClient;
+    private $serializer;
 
     /**
      * @var RepresentationSerializerInterface|null The representation serializer to be injected in the client
@@ -57,99 +65,131 @@ final class ClientBuilder
      *
      * @param Options|null $options The client options
      */
-    public function __construct(?Options $options = null)
+    public function __construct(Options $options = null)
     {
         $this->options = $options ?? new Options();
     }
 
     /**
-     * @param array<string, mixed> $options The client options, in naked array form
+     * {@inheritdoc}
      */
-    public static function create(array $options = []): self
+    public static function create(array $options = []): ClientBuilderInterface
     {
         return new self(new Options($options));
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function getOptions(): Options
     {
         return $this->options;
     }
 
-    public function setRepresentationSerializer(RepresentationSerializerInterface $representationSerializer): self
+    /**
+     * {@inheritdoc}
+     */
+    public function setSerializer(SerializerInterface $serializer): ClientBuilderInterface
+    {
+        $this->serializer = $serializer;
+
+        return $this;
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function setRepresentationSerializer(RepresentationSerializerInterface $representationSerializer): ClientBuilderInterface
     {
         $this->representationSerializer = $representationSerializer;
 
         return $this;
     }
 
-    public function getLogger(): ?LoggerInterface
-    {
-        return $this->logger ?? $this->options->getLogger();
-    }
-
-    public function setLogger(LoggerInterface $logger): self
+    /**
+     * {@inheritdoc}
+     */
+    public function setLogger(LoggerInterface $logger): ClientBuilderInterface
     {
         $this->logger = $logger;
 
         return $this;
     }
 
-    public function setSdkIdentifier(string $sdkIdentifier): self
+    /**
+     * {@inheritdoc}
+     */
+    public function setSdkIdentifier(string $sdkIdentifier): ClientBuilderInterface
     {
         $this->sdkIdentifier = $sdkIdentifier;
 
         return $this;
     }
 
-    public function setSdkVersion(string $sdkVersion): self
+    /**
+     * {@inheritdoc}
+     */
+    public function setSdkVersion(string $sdkVersion): ClientBuilderInterface
     {
         $this->sdkVersion = $sdkVersion;
 
         return $this;
     }
 
-    public function getTransport(): TransportInterface
+    /**
+     * {@inheritdoc}
+     */
+    public function setTransportFactory(TransportFactoryInterface $transportFactory): ClientBuilderInterface
     {
-        return $this->transport
-            ?? $this->options->getTransport()
-            ?? new HttpTransport(
-                $this->options,
-                $this->getHttpClient(),
-                new PayloadSerializer($this->options),
-                $this->getLogger()
-            );
-    }
-
-    public function setTransport(TransportInterface $transport): self
-    {
-        $this->transport = $transport;
+        $this->transportFactory = $transportFactory;
 
         return $this;
     }
 
-    public function getHttpClient(): HttpClientInterface
-    {
-        return $this->httpClient
-            ?? $this->options->getHttpClient()
-            ?? new HttpClient($this->sdkIdentifier, $this->sdkVersion);
-    }
-
-    public function setHttpClient(HttpClientInterface $httpClient): self
-    {
-        $this->httpClient = $httpClient;
-
-        return $this;
-    }
-
+    /**
+     * {@inheritdoc}
+     */
     public function getClient(): ClientInterface
     {
-        return new Client(
-            $this->options,
-            $this->getTransport(),
+        $this->transport = $this->transport ?? $this->createTransportInstance();
+
+        return new Client($this->options, $this->transport, $this->sdkIdentifier, $this->sdkVersion, $this->serializer, $this->representationSerializer, $this->logger);
+    }
+
+    /**
+     * Creates a new instance of the transport mechanism.
+     */
+    private function createTransportInstance(): TransportInterface
+    {
+        if (null !== $this->transport) {
+            return $this->transport;
+        }
+
+        $transportFactory = $this->transportFactory ?? $this->createDefaultTransportFactory();
+
+        return $transportFactory->create($this->options);
+    }
+
+    /**
+     * Creates a new instance of the {@see DefaultTransportFactory} factory.
+     */
+    private function createDefaultTransportFactory(): DefaultTransportFactory
+    {
+        $streamFactory = Psr17FactoryDiscovery::findStreamFactory();
+        $httpClientFactory = new HttpClientFactory(
+            null,
+            null,
+            $streamFactory,
+            null,
             $this->sdkIdentifier,
-            $this->sdkVersion,
-            $this->representationSerializer,
-            $this->getLogger()
+            $this->sdkVersion
+        );
+
+        return new DefaultTransportFactory(
+            $streamFactory,
+            Psr17FactoryDiscovery::findRequestFactory(),
+            $httpClientFactory,
+            $this->logger
         );
     }
 }

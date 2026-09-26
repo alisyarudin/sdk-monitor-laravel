@@ -20,6 +20,10 @@
             <exclude>tests/Sdk/phpt-oom</exclude>
         </testsuite>
     </testsuites>
+    <!-- Wajib: tes @group time-sensitive (ClockMock) hanya aktif lewat listener ini. -->
+    <listeners>
+        <listener class="\Symfony\Bridge\PhpUnit\SymfonyTestsListener"/>
+    </listeners>
     <extensions>
         <extension class="Jasnita\Monitor\Sdk\Tests\JasnitaSdkExtension"/>
     </extensions>

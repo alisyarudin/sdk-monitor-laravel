@@ -5,30 +5,12 @@ declare(strict_types=1);
 namespace Jasnita\Monitor\Sdk\Tracing;
 
 use Jasnita\Monitor\Sdk\EventId;
-use Jasnita\Monitor\Sdk\JasnitaSdk;
-use Jasnita\Monitor\Sdk\State\Scope;
-use Jasnita\Monitor\Sdk\Unit;
 
 /**
  * This class stores all the information about a span.
- *
- * @phpstan-type MetricsSummary array{
- *     min: int|float,
- *     max: int|float,
- *     sum: int|float,
- *     count: int,
- *     tags: array<string>,
- * }
  */
 class Span
 {
-    /**
-     * Maximum number of flags allowed. We only track the first flags set.
-     *
-     * @internal
-     */
-    public const MAX_FLAGS = 10;
-
     /**
      * @var SpanId Span ID
      */
@@ -70,11 +52,6 @@ class Span
     protected $tags = [];
 
     /**
-     * @var array<string, bool> A List of flags associated to this span
-     */
-    protected $flags = [];
-
-    /**
      * @var array<string, mixed> An arbitrary mapping of additional metadata
      */
     protected $data = [];
@@ -100,13 +77,6 @@ class Span
     protected $transaction;
 
     /**
-     * @var string|null The trace origin of the span. If no origin is set, the span is considered to be "manual".
-     *
-     * @see (dokumentasi hulu)
-     */
-    protected $origin;
-
-    /**
      * Constructor.
      *
      * @param SpanContext|null $context The context to create the span with
@@ -115,7 +85,7 @@ class Span
      */
     public function __construct(?SpanContext $context = null)
     {
-        if ($context === null) {
+        if (null === $context) {
             $this->traceId = TraceId::generate();
             $this->spanId = SpanId::generate();
             $this->startTimestamp = microtime(true);
@@ -134,7 +104,6 @@ class Span
         $this->tags = $context->getTags();
         $this->data = $context->getData();
         $this->endTimestamp = $context->getEndTimestamp();
-        $this->origin = $context->getOrigin();
     }
 
     /**
@@ -142,11 +111,9 @@ class Span
      *
      * @param SpanId $spanId The ID
      */
-    public function setSpanId(SpanId $spanId): self
+    public function setSpanId(SpanId $spanId): void
     {
         $this->spanId = $spanId;
-
-        return $this;
     }
 
     /**
@@ -161,14 +128,10 @@ class Span
      * Sets the ID that determines which trace the span belongs to.
      *
      * @param TraceId $traceId The ID
-     *
-     * @return $this
      */
-    public function setTraceId(TraceId $traceId)
+    public function setTraceId(TraceId $traceId): void
     {
         $this->traceId = $traceId;
-
-        return $this;
     }
 
     /**
@@ -183,14 +146,10 @@ class Span
      * Sets the ID that determines which span is the parent of the current one.
      *
      * @param SpanId|null $parentSpanId The ID
-     *
-     * @return $this
      */
-    public function setParentSpanId(?SpanId $parentSpanId)
+    public function setParentSpanId(?SpanId $parentSpanId): void
     {
         $this->parentSpanId = $parentSpanId;
-
-        return $this;
     }
 
     /**
@@ -205,14 +164,10 @@ class Span
      * Sets the timestamp representing when the measuring started.
      *
      * @param float $startTimestamp The timestamp
-     *
-     * @return $this
      */
-    public function setStartTimestamp(float $startTimestamp)
+    public function setStartTimestamp(float $startTimestamp): void
     {
         $this->startTimestamp = $startTimestamp;
-
-        return $this;
     }
 
     /**
@@ -237,14 +192,10 @@ class Span
      * the span but is consistent across instances of the span.
      *
      * @param string|null $description The description
-     *
-     * @return $this
      */
-    public function setDescription(?string $description)
+    public function setDescription(?string $description): void
     {
         $this->description = $description;
-
-        return $this;
     }
 
     /**
@@ -259,14 +210,10 @@ class Span
      * Sets a short code identifying the type of operation the span is measuring.
      *
      * @param string|null $op The short code
-     *
-     * @return $this
      */
-    public function setOp(?string $op)
+    public function setOp(?string $op): void
     {
         $this->op = $op;
-
-        return $this;
     }
 
     /**
@@ -281,38 +228,26 @@ class Span
      * Sets the status of the span/transaction.
      *
      * @param SpanStatus|null $status The status
-     *
-     * @return $this
      */
-    public function setStatus(?SpanStatus $status)
+    public function setStatus(?SpanStatus $status): void
     {
         $this->status = $status;
-
-        return $this;
     }
 
     /**
      * Sets the HTTP status code and the status of the span/transaction.
      *
      * @param int $statusCode The HTTP status code
-     *
-     * @return $this
      */
-    public function setHttpStatus(int $statusCode)
+    public function setHttpStatus(int $statusCode): void
     {
-        JasnitaSdk::getCurrentHub()->configureScope(static function (Scope $scope) use ($statusCode) {
-            $scope->setContext('response', [
-                'status_code' => $statusCode,
-            ]);
-        });
+        $this->tags['http.status_code'] = (string) $statusCode;
 
         $status = SpanStatus::createFromHttpStatusCode($statusCode);
 
         if ($status !== SpanStatus::unknownError()) {
             $this->status = $status;
         }
-
-        return $this;
     }
 
     /**
@@ -326,32 +261,13 @@ class Span
     }
 
     /**
-     * Sets a map of tags for this event. This method will merge the given tags with
-     * the existing ones.
+     * Sets a map of tags for this event.
      *
      * @param array<string, string> $tags The tags
-     *
-     * @return $this
      */
-    public function setTags(array $tags)
+    public function setTags(array $tags): void
     {
         $this->tags = array_merge($this->tags, $tags);
-
-        return $this;
-    }
-
-    /**
-     * Sets a feature flag associated to this span.
-     *
-     * @return $this
-     */
-    public function setFlag(string $key, bool $result)
-    {
-        if (\count($this->flags) < self::MAX_FLAGS) {
-            $this->flags[$key] = $result;
-        }
-
-        return $this;
     }
 
     /**
@@ -374,51 +290,31 @@ class Span
      * Sets the flag determining whether this span should be sampled or not.
      *
      * @param bool $sampled Whether to sample or not this span
-     *
-     * @return $this
      */
-    public function setSampled(?bool $sampled)
+    public function setSampled(?bool $sampled): void
     {
         $this->sampled = $sampled;
-
-        return $this;
     }
 
     /**
-     * Gets a map of arbitrary data or a specific key from the map of data attached to this span.
+     * Gets a map of arbitrary data.
      *
-     * @param string|null $key     Select a specific key from the data to return the value of
-     * @param mixed       $default When the $key is not found, return this value
-     *
-     * @return ($key is null ? array<string, mixed> : mixed|null)
+     * @return array<string, mixed>
      */
-    public function getData(?string $key = null, $default = null)
+    public function getData(): array
     {
-        if ($key === null) {
-            $data = $this->data;
-
-            foreach ($this->flags as $flagKey => $flagValue) {
-                $data["flag.evaluation.{$flagKey}"] = $flagValue;
-            }
-
-            return $data;
-        }
-
-        return $this->data[$key] ?? $default;
+        return $this->data;
     }
 
     /**
-     * Sets a map of arbitrary data. This method will merge the given data with the existing one.
+     * Sets a map of arbitrary data. This method will merge the given data with
+     * the existing one.
      *
      * @param array<string, mixed> $data The data
-     *
-     * @return $this
      */
-    public function setData(array $data)
+    public function setData(array $data): void
     {
         $this->data = array_merge($this->data, $data);
-
-        return $this;
     }
 
     /**
@@ -426,7 +322,7 @@ class Span
      *
      * @return array<string, mixed>
      *
-     * @phpstan-return array{
+     * @psalm-return array{
      *     data?: array<string, mixed>,
      *     description?: string,
      *     op?: string,
@@ -434,8 +330,7 @@ class Span
      *     span_id: string,
      *     status?: string,
      *     tags?: array<string, string>,
-     *     trace_id: string,
-     *     origin: string,
+     *     trace_id: string
      * }
      */
     public function getTraceContext(): array
@@ -443,22 +338,21 @@ class Span
         $result = [
             'span_id' => (string) $this->spanId,
             'trace_id' => (string) $this->traceId,
-            'origin' => $this->origin ?? 'manual',
         ];
 
-        if ($this->parentSpanId !== null) {
+        if (null !== $this->parentSpanId) {
             $result['parent_span_id'] = (string) $this->parentSpanId;
         }
 
-        if ($this->description !== null) {
+        if (null !== $this->description) {
             $result['description'] = $this->description;
         }
 
-        if ($this->op !== null) {
+        if (null !== $this->op) {
             $result['op'] = $this->op;
         }
 
-        if ($this->status !== null) {
+        if (null !== $this->status) {
             $result['status'] = (string) $this->status;
         }
 
@@ -504,7 +398,7 @@ class Span
         $span->transaction = $this->transaction;
         $span->spanRecorder = $this->spanRecorder;
 
-        if ($span->spanRecorder !== null) {
+        if (null != $span->spanRecorder) {
             $span->spanRecorder->add($span);
         }
 
@@ -523,54 +417,10 @@ class Span
 
     /**
      * Detaches the span recorder from this instance.
-     *
-     * @return $this
      */
-    public function detachSpanRecorder()
+    public function detachSpanRecorder(): void
     {
         $this->spanRecorder = null;
-
-        return $this;
-    }
-
-    /**
-     * @deprecated Metrics are no longer supported. Metrics API is a no-op and will be removed in 5.x.
-     */
-    public function getMetricsSummary(): array
-    {
-        return [];
-    }
-
-    /**
-     * @deprecated Metrics are no longer supported. Metrics API is a no-op and will be removed in 5.x.
-     */
-    public function setMetricsSummary(
-        string $type,
-        string $key,
-        $value,
-        Unit $unit,
-        array $tags
-    ): void {
-    }
-
-    /**
-     * Sets the trace origin for this span.
-     */
-    public function getOrigin(): ?string
-    {
-        return $this->origin;
-    }
-
-    /**
-     * Sets the trace origin of the span.
-     *
-     * @return $this
-     */
-    public function setOrigin(?string $origin)
-    {
-        $this->origin = $origin;
-
-        return $this;
     }
 
     /**
@@ -588,21 +438,11 @@ class Span
     {
         $sampled = '';
 
-        if ($this->sampled !== null) {
+        if (null !== $this->sampled) {
             $sampled = $this->sampled ? '-1' : '-0';
         }
 
-        return \sprintf('%s-%s%s', (string) $this->traceId, (string) $this->spanId, $sampled);
-    }
-
-    /**
-     * Returns a string that can be used for the W3C `traceparent` header & meta tag.
-     *
-     * @deprecated since version 4.12. To be removed in version 5.0.
-     */
-    public function toW3CTraceparent(): string
-    {
-        return '';
+        return sprintf('%s-%s%s', (string) $this->traceId, (string) $this->spanId, $sampled);
     }
 
     /**
@@ -612,7 +452,7 @@ class Span
     {
         $transaction = $this->getTransaction();
 
-        if ($transaction !== null) {
+        if (null !== $transaction) {
             return (string) $transaction->getDynamicSamplingContext();
         }
 

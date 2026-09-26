@@ -4,20 +4,23 @@ declare(strict_types=1);
 
 namespace Jasnita\Monitor\Sdk;
 
+use GuzzleHttp\Promise\PromiseInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Jasnita\Monitor\Sdk\Integration\IntegrationInterface;
 use Jasnita\Monitor\Sdk\Integration\IntegrationRegistry;
 use Jasnita\Monitor\Sdk\Serializer\RepresentationSerializer;
 use Jasnita\Monitor\Sdk\Serializer\RepresentationSerializerInterface;
+use Jasnita\Monitor\Sdk\Serializer\SerializerInterface;
 use Jasnita\Monitor\Sdk\State\Scope;
-use Jasnita\Monitor\Sdk\Transport\Result;
 use Jasnita\Monitor\Sdk\Transport\TransportInterface;
 
 /**
  * Default implementation of the {@see ClientInterface} interface.
+ *
+ * @author Stefano Arlandini <sarlandini@alice.it>
  */
-class Client implements ClientInterface
+final class Client implements ClientInterface
 {
     /**
      * The version of the protocol to communicate with the Jasnita server.
@@ -32,13 +35,7 @@ class Client implements ClientInterface
     /**
      * The version of the SDK.
      */
-    public const SDK_VERSION = '4.32.0';
-
-    /**
-     * Regex pattern to detect if a string is a regex pattern (starts and ends with / optionally followed by flags).
-     * Supported flags: i (case-insensitive), m (multiline), s (dotall), u (unicode).
-     */
-    private const REGEX_PATTERN_DETECTION = '/^\/.*\/[imsu]*$/';
+    public const SDK_VERSION = '3.22.1';
 
     /**
      * @var Options The client options
@@ -58,7 +55,7 @@ class Client implements ClientInterface
     /**
      * @var array<string, IntegrationInterface> The stack of integrations
      *
-     * @phpstan-var array<class-string<IntegrationInterface>, IntegrationInterface>
+     * @psalm-var array<class-string<IntegrationInterface>, IntegrationInterface>
      */
     private $integrations;
 
@@ -84,6 +81,7 @@ class Client implements ClientInterface
      * @param TransportInterface                     $transport                The transport
      * @param string|null                            $sdkIdentifier            The Jasnita SDK identifier
      * @param string|null                            $sdkVersion               The Jasnita SDK version
+     * @param SerializerInterface|null               $serializer               The serializer argument is deprecated since version 3.3 and will be removed in 4.0. It's currently unused.
      * @param RepresentationSerializerInterface|null $representationSerializer The serializer for function arguments
      * @param LoggerInterface|null                   $logger                   The PSR-3 logger
      */
@@ -92,17 +90,17 @@ class Client implements ClientInterface
         TransportInterface $transport,
         ?string $sdkIdentifier = null,
         ?string $sdkVersion = null,
+        ?SerializerInterface $serializer = null,
         ?RepresentationSerializerInterface $representationSerializer = null,
         ?LoggerInterface $logger = null
     ) {
         $this->options = $options;
         $this->transport = $transport;
+        $this->logger = $logger ?? new NullLogger();
+        $this->integrations = IntegrationRegistry::getInstance()->setupIntegrations($options, $this->logger);
+        $this->stacktraceBuilder = new StacktraceBuilder($options, $representationSerializer ?? new RepresentationSerializer($this->options));
         $this->sdkIdentifier = $sdkIdentifier ?? self::SDK_IDENTIFIER;
         $this->sdkVersion = $sdkVersion ?? self::SDK_VERSION;
-        $this->stacktraceBuilder = new StacktraceBuilder($options, $representationSerializer ?? new RepresentationSerializer($this->options));
-        $this->logger = $logger ?? new NullLogger();
-
-        $this->integrations = IntegrationRegistry::getInstance()->setupIntegrations($options, $this->logger);
     }
 
     /**
@@ -120,7 +118,7 @@ class Client implements ClientInterface
     {
         $dsn = $this->options->getDsn();
 
-        if ($dsn === null) {
+        if (null === $dsn) {
             return null;
         }
 
@@ -154,19 +152,9 @@ class Client implements ClientInterface
      */
     public function captureException(\Throwable $exception, ?Scope $scope = null, ?EventHint $hint = null): ?EventId
     {
-        $className = \get_class($exception);
-        if ($this->shouldIgnoreException($className)) {
-            $this->logger->info(
-                'The exception will be discarded because it matches an entry in "ignore_exceptions".',
-                ['className' => $className]
-            );
-
-            return null; // short circuit to avoid unnecessary processing
-        }
-
         $hint = $hint ?? new EventHint();
 
-        if ($hint->exception === null) {
+        if (null === $hint->exception) {
             $hint->exception = $exception;
         }
 
@@ -178,28 +166,21 @@ class Client implements ClientInterface
      */
     public function captureEvent(Event $event, ?EventHint $hint = null, ?Scope $scope = null): ?EventId
     {
-        // Client reports don't need to be augmented in the prepareEvent pipeline.
-        if ($event->getType() !== EventType::clientReport()) {
-            $event = $this->prepareEvent($event, $hint, $scope);
-        }
+        $event = $this->prepareEvent($event, $hint, $scope);
 
-        if ($event === null) {
+        if (null === $event) {
             return null;
         }
 
         try {
-            /** @var Result $result */
-            $result = $this->transport->send($event);
-            $event = $result->getEvent();
+            /** @var Response $response */
+            $response = $this->transport->send($event)->wait();
+            $event = $response->getEvent();
 
-            if ($event !== null) {
+            if (null !== $event) {
                 return $event->getId();
             }
         } catch (\Throwable $exception) {
-            $this->logger->error(
-                \sprintf('Failed to send the event to Jasnita. Reason: "%s".', $exception->getMessage()),
-                ['exception' => $exception, 'event' => $event]
-            );
         }
 
         return null;
@@ -212,7 +193,7 @@ class Client implements ClientInterface
     {
         $error = error_get_last();
 
-        if ($error === null || !isset($error['message'][0])) {
+        if (null === $error || !isset($error['message'][0])) {
             return null;
         }
 
@@ -224,18 +205,18 @@ class Client implements ClientInterface
     /**
      * {@inheritdoc}
      *
-     * @phpstan-template T of IntegrationInterface
+     * @psalm-template T of IntegrationInterface
      */
     public function getIntegration(string $className): ?IntegrationInterface
     {
-        /** @phpstan-var T|null */
+        /** @psalm-var T|null */
         return $this->integrations[$className] ?? null;
     }
 
     /**
      * {@inheritdoc}
      */
-    public function flush(?int $timeout = null): Result
+    public function flush(?int $timeout = null): PromiseInterface
     {
         return $this->transport->close($timeout);
     }
@@ -249,32 +230,6 @@ class Client implements ClientInterface
     }
 
     /**
-     * @internal
-     */
-    public function getLogger(): LoggerInterface
-    {
-        return $this->logger;
-    }
-
-    /**
-     * @internal
-     */
-    public function getTransport(): TransportInterface
-    {
-        return $this->transport;
-    }
-
-    public function getSdkIdentifier(): string
-    {
-        return $this->sdkIdentifier;
-    }
-
-    public function getSdkVersion(): string
-    {
-        return $this->sdkVersion;
-    }
-
-    /**
      * Assembles an event and prepares it to be sent of to Jasnita.
      *
      * @param Event          $event The payload that will be converted to an Event
@@ -285,12 +240,12 @@ class Client implements ClientInterface
      */
     private function prepareEvent(Event $event, ?EventHint $hint = null, ?Scope $scope = null): ?Event
     {
-        if ($hint !== null) {
-            if ($hint->exception !== null && empty($event->getExceptions())) {
+        if (null !== $hint) {
+            if (null !== $hint->exception && empty($event->getExceptions())) {
                 $this->addThrowableToEvent($event, $hint->exception, $hint);
             }
 
-            if ($hint->stacktrace !== null && $event->getStacktrace() === null) {
+            if (null !== $hint->stacktrace && null === $event->getStacktrace()) {
                 $event->setStacktrace($hint->stacktrace);
             }
         }
@@ -299,51 +254,46 @@ class Client implements ClientInterface
 
         $event->setSdkIdentifier($this->sdkIdentifier);
         $event->setSdkVersion($this->sdkVersion);
-
         $event->setTags(array_merge($this->options->getTags(), $event->getTags()));
 
-        if ($event->getServerName() === null) {
+        if (null === $event->getServerName()) {
             $event->setServerName($this->options->getServerName());
         }
 
-        if ($event->getRelease() === null) {
+        if (null === $event->getRelease()) {
             $event->setRelease($this->options->getRelease());
         }
 
-        if ($event->getEnvironment() === null) {
+        if (null === $event->getEnvironment()) {
             $event->setEnvironment($this->options->getEnvironment() ?? Event::DEFAULT_ENVIRONMENT);
         }
 
-        $eventDescription = \sprintf(
-            '%s%s [%s]',
-            $event->getLevel() !== null ? $event->getLevel() . ' ' : '',
-            (string) $event->getType(),
-            (string) $event->getId()
-        );
+        if (null === $event->getLogger()) {
+            $event->setLogger($this->options->getLogger(false));
+        }
 
-        $isEvent = EventType::event() === $event->getType();
+        $isTransaction = EventType::transaction() === $event->getType();
         $sampleRate = $this->options->getSampleRate();
 
-        // only sample with the `sample_rate` on errors/messages
-        if ($isEvent && $sampleRate < 1 && mt_rand(1, 100) / 100.0 > $sampleRate) {
-            $this->logger->info(\sprintf('The %s will be discarded because it has been sampled.', $eventDescription), ['event' => $event]);
+        if (!$isTransaction && $sampleRate < 1 && mt_rand(1, 100) / 100.0 > $sampleRate) {
+            $this->logger->info('The event will be discarded because it has been sampled.', ['event' => $event]);
 
             return null;
         }
 
-        $event = $this->applyIgnoreOptions($event, $eventDescription);
+        $event = $this->applyIgnoreOptions($event);
 
-        if ($event === null) {
+        if (null === $event) {
             return null;
         }
 
-        if ($scope !== null) {
+        if (null !== $scope) {
             $beforeEventProcessors = $event;
             $event = $scope->applyToEvent($event, $hint, $this->options);
 
-            if ($event === null) {
+            if (null === $event) {
                 $this->logger->info(
-                    \sprintf('The %s will be discarded because one of the event processors returned "null".', $eventDescription),
+                    'The event will be discarded because one of the event processors returned "null".',
                     ['event' => $beforeEventProcessors]
                 );
 
@@ -354,11 +304,10 @@ class Client implements ClientInterface
         $beforeSendCallback = $event;
         $event = $this->applyBeforeSendCallback($event, $hint);
 
-        if ($event === null) {
+        if (null === $event) {
             $this->logger->info(
-                \sprintf(
-                    'The %s will be discarded because the "%s" callback returned "null".',
-                    $eventDescription,
+                sprintf(
+                    'The event will be discarded because the "%s" callback returned "null".',
                     $this->getBeforeSendCallbackName($beforeSendCallback)
                 ),
                 ['event' => $beforeSendCallback]
@@ -368,71 +317,7 @@ class Client implements ClientInterface
         return $event;
     }
 
-    /**
-     * Checks if an exception should be ignored based on configured patterns.
-     * Supports both class hierarchy matching and regex patterns.
-     * Patterns starting and ending with '/' are treated as regex patterns.
-     */
-    private function shouldIgnoreException(string $className): bool
-    {
-        foreach ($this->options->getIgnoreExceptions() as $pattern) {
-            // Check for regex pattern (starts with / and ends with / optionally followed by flags)
-            if (preg_match(self::REGEX_PATTERN_DETECTION, $pattern)) {
-                try {
-                    if (preg_match($pattern, $className)) {
-                        return true;
-                    }
-                } catch (\Throwable $e) {
-                    // Invalid regex pattern, log and skip
-                    $this->logger->warning(
-                        \sprintf('Invalid regex pattern in ignore_exceptions: "%s". Error: %s', $pattern, $e->getMessage())
-                    );
-                    continue;
-                }
-            } else {
-                // Class hierarchy check
-                if (is_a($className, $pattern, true)) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Checks if a transaction should be ignored based on configured patterns.
-     * Supports both exact string matching and regex patterns.
-     * Patterns starting and ending with '/' are treated as regex patterns.
-     */
-    private function shouldIgnoreTransaction(string $transactionName): bool
-    {
-        foreach ($this->options->getIgnoreTransactions() as $pattern) {
-            // Check for regex pattern (starts with / and ends with / optionally followed by flags)
-            if (preg_match(self::REGEX_PATTERN_DETECTION, $pattern)) {
-                try {
-                    if (preg_match($pattern, $transactionName)) {
-                        return true;
-                    }
-                } catch (\Throwable $e) {
-                    // Invalid regex pattern, log and skip
-                    $this->logger->warning(
-                        \sprintf('Invalid regex pattern in ignore_transactions: "%s". Error: %s', $pattern, $e->getMessage())
-                    );
-                    continue;
-                }
-            } else {
-                // Exact string match
-                if ($transactionName === $pattern) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private function applyIgnoreOptions(Event $event, string $eventDescription): ?Event
+    private function applyIgnoreOptions(Event $event): ?Event
     {
         if ($event->getType() === EventType::event()) {
             $exceptions = $event->getExceptions();
@@ -442,9 +327,9 @@ class Client implements ClientInterface
             }
 
             foreach ($exceptions as $exception) {
-                if ($this->shouldIgnoreException($exception->getType())) {
+                if (\in_array($exception->getType(), $this->options->getIgnoreExceptions(), true)) {
                     $this->logger->info(
-                        \sprintf('The %s will be discarded because it matches an entry in "ignore_exceptions".', $eventDescription),
+                        'The event will be discarded because it matches an entry in "ignore_exceptions".',
                         ['event' => $event]
                     );
 
@@ -456,13 +341,13 @@ class Client implements ClientInterface
         if ($event->getType() === EventType::transaction()) {
             $transactionName = $event->getTransaction();
 
-            if ($transactionName === null) {
+            if (null === $transactionName) {
                 return $event;
             }
 
-            if ($this->shouldIgnoreTransaction($transactionName)) {
+            if (\in_array($transactionName, $this->options->getIgnoreTransactions(), true)) {
                 $this->logger->info(
-                    \sprintf('The %s will be discarded because it matches a entry in "ignore_transactions".', $eventDescription),
+                    'The event will be discarded because it matches a entry in "ignore_transactions".',
                     ['event' => $event]
                 );
 
@@ -475,46 +360,26 @@ class Client implements ClientInterface
 
     private function applyBeforeSendCallback(Event $event, ?EventHint $hint): ?Event
     {
-        switch ($event->getType()) {
-            case EventType::event():
-                try {
-                    return ($this->options->getBeforeSendCallback())($event, $hint);
-                } catch (\Throwable $exception) {
-                    $this->logger->error(\sprintf('The "before_send" callback failed with exception: "%s".', $exception->getMessage()));
-
-                    return null;
-                }
-            case EventType::transaction():
-                try {
-                    return ($this->options->getBeforeSendTransactionCallback())($event, $hint);
-                } catch (\Throwable $exception) {
-                    $this->logger->error(\sprintf('The "before_send_transaction" callback failed with exception: "%s".', $exception->getMessage()));
-
-                    return null;
-                }
-            case EventType::checkIn():
-                try {
-                    return ($this->options->getBeforeSendCheckInCallback())($event, $hint);
-                } catch (\Throwable $exception) {
-                    $this->logger->error(\sprintf('The "before_send_check_in" callback failed with exception: "%s".', $exception->getMessage()));
-
-                    return null;
-                }
-            default:
-                return $event;
+        if ($event->getType() === EventType::event()) {
+            return ($this->options->getBeforeSendCallback())($event, $hint);
         }
+
+        if ($event->getType() === EventType::transaction()) {
+            return ($this->options->getBeforeSendTransactionCallback())($event, $hint);
+        }
+
+        return $event;
     }
 
     private function getBeforeSendCallbackName(Event $event): string
     {
-        switch ($event->getType()) {
-            case EventType::transaction():
-                return 'before_send_transaction';
-            case EventType::checkIn():
-                return 'before_send_check_in';
-            default:
-                return 'before_send';
+        $beforeSendCallbackName = 'before_send';
+
+        if ($event->getType() === EventType::transaction()) {
+            $beforeSendCallbackName = 'before_send_transaction';
         }
+
+        return $beforeSendCallbackName;
     }
 
     /**
@@ -529,7 +394,7 @@ class Client implements ClientInterface
         }
 
         // We should not add a stacktrace when the event already has one or contains exceptions
-        if ($event->getStacktrace() !== null || !empty($event->getExceptions())) {
+        if (null !== $event->getStacktrace() || !empty($event->getExceptions())) {
             return;
         }
 
@@ -549,7 +414,7 @@ class Client implements ClientInterface
      */
     private function addThrowableToEvent(Event $event, \Throwable $exception, EventHint $hint): void
     {
-        if ($exception instanceof \ErrorException && $event->getLevel() === null) {
+        if ($exception instanceof \ErrorException && null === $event->getLevel()) {
             $event->setLevel(Severity::fromError($exception->getSeverity()));
         }
 

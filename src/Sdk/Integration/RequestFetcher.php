@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Jasnita\Monitor\Sdk\Integration;
 
-use GuzzleHttp\Psr7\ServerRequest;
+use Http\Discovery\Psr17Factory;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -22,10 +22,6 @@ final class RequestFetcher implements RequestFetcherInterface
             return null;
         }
 
-        try {
-            return ServerRequest::fromGlobals();
-        } catch (\InvalidArgumentException $e) {
-            return null;
-        }
+        return (new Psr17Factory())->createServerRequestFromGlobals();
     }
 }

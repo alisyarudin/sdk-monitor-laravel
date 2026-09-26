@@ -42,20 +42,12 @@ final class HubAdapterTest extends TestCase
         clone HubAdapter::getInstance();
     }
 
-    public function testHubAdapterThrowsExceptionOnSerialization(): void
-    {
-        $this->expectException(\BadMethodCallException::class);
-        $this->expectExceptionMessage('Serializing instances of this class is forbidden.');
-
-        serialize(HubAdapter::getInstance());
-    }
-
-    public function testHubAdapterThrowsExceptionOnUnserialization(): void
+    public function testGetInstanceReturnsUnserializableInstance(): void
     {
         $this->expectException(\BadMethodCallException::class);
         $this->expectExceptionMessage('Unserializing instances of this class is forbidden.');
 
-        unserialize('O:36:"Jasnita\Monitor\Sdk\State\HubAdapter":0:{}');
+        unserialize(serialize(HubAdapter::getInstance()));
     }
 
     public function testGetClient(): void
@@ -270,7 +262,7 @@ final class HubAdapterTest extends TestCase
         ];
     }
 
-    public function testCaptureCheckIn(): void
+    public function testCaptureCheckIn()
     {
         $hub = new Hub();
 

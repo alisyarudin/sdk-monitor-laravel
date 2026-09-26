@@ -4,21 +4,24 @@ declare(strict_types=1);
 
 namespace Jasnita\Monitor\Sdk;
 
+use GuzzleHttp\Promise\PromiseInterface;
 use Jasnita\Monitor\Sdk\Integration\IntegrationInterface;
 use Jasnita\Monitor\Sdk\State\Scope;
-use Jasnita\Monitor\Sdk\Transport\Result;
 
+/**
+ * This interface must be implemented by all Raven client classes.
+ *
+ * @method StacktraceBuilder getStacktraceBuilder() Returns the stacktrace builder of the client.
+ * @method string|null getCspReportUrl() Returns an URL for security policy reporting that's generated from the given DSN
+ *
+ * @author Stefano Arlandini <sarlandini@alice.it>
+ */
 interface ClientInterface
 {
     /**
      * Returns the options of the client.
      */
     public function getOptions(): Options;
-
-    /**
-     * Returns an URL for security policy reporting that's generated from the configured DSN.
-     */
-    public function getCspReportUrl(): ?string;
 
     /**
      * Logs a message.
@@ -28,7 +31,7 @@ interface ClientInterface
      * @param Scope|null     $scope   An optional scope keeping the state
      * @param EventHint|null $hint    Object that can contain additional information about the event
      */
-    public function captureMessage(string $message, ?Severity $level = null, ?Scope $scope = null, ?EventHint $hint = null): ?EventId;
+    public function captureMessage(string $message, ?Severity $level = null, ?Scope $scope = null/*, ?EventHint $hint = null*/): ?EventId;
 
     /**
      * Logs an exception.
@@ -37,7 +40,7 @@ interface ClientInterface
      * @param Scope|null     $scope     An optional scope keeping the state
      * @param EventHint|null $hint      Object that can contain additional information about the event
      */
-    public function captureException(\Throwable $exception, ?Scope $scope = null, ?EventHint $hint = null): ?EventId;
+    public function captureException(\Throwable $exception, ?Scope $scope = null/*, ?EventHint $hint = null*/): ?EventId;
 
     /**
      * Logs the most recent error (obtained with {@link error_get_last}).
@@ -45,7 +48,7 @@ interface ClientInterface
      * @param Scope|null     $scope An optional scope keeping the state
      * @param EventHint|null $hint  Object that can contain additional information about the event
      */
-    public function captureLastError(?Scope $scope = null, ?EventHint $hint = null): ?EventId;
+    public function captureLastError(?Scope $scope = null/*, ?EventHint $hint = null*/): ?EventId;
 
     /**
      * Captures a new event using the provided data.
@@ -61,11 +64,11 @@ interface ClientInterface
      *
      * @param string $className The FQCN of the integration
      *
-     * @phpstan-template T of IntegrationInterface
+     * @psalm-template T of IntegrationInterface
      *
-     * @phpstan-param class-string<T> $className
+     * @psalm-param class-string<T> $className
      *
-     * @phpstan-return T|null
+     * @psalm-return T|null
      */
     public function getIntegration(string $className): ?IntegrationInterface;
 
@@ -75,10 +78,5 @@ interface ClientInterface
      *
      * @param int|null $timeout Maximum time in seconds the client should wait
      */
-    public function flush(?int $timeout = null): Result;
-
-    /**
-     * Returns the stacktrace builder of the client.
-     */
-    public function getStacktraceBuilder(): StacktraceBuilder;
+    public function flush(?int $timeout = null): PromiseInterface;
 }

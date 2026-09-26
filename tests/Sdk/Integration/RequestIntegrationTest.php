@@ -18,7 +18,6 @@ use Jasnita\Monitor\Sdk\Options;
 use Jasnita\Monitor\Sdk\JasnitaSdk;
 use Jasnita\Monitor\Sdk\State\Scope;
 use Jasnita\Monitor\Sdk\UserDataBag;
-
 use function Jasnita\Monitor\Sdk\withScope;
 
 final class RequestIntegrationTest extends TestCase
@@ -54,7 +53,7 @@ final class RequestIntegrationTest extends TestCase
 
             $user = $event->getUser();
 
-            if ($expectedUser !== null) {
+            if (null !== $expectedUser) {
                 $this->assertNotNull($user);
                 $this->assertEquals($expectedUser, $user);
             } else {
@@ -106,7 +105,7 @@ final class RequestIntegrationTest extends TestCase
             [
                 'send_default_pii' => true,
             ],
-            new ServerRequest('GET', 'http://www.example.com:1234/foo'),
+            (new ServerRequest('GET', 'http://www.example.com:1234/foo')),
             [
                 'url' => 'http://www.example.com:1234/foo',
                 'method' => 'GET',
@@ -123,7 +122,7 @@ final class RequestIntegrationTest extends TestCase
             [
                 'send_default_pii' => false,
             ],
-            new ServerRequest('GET', 'http://www.example.com:1234/foo'),
+            (new ServerRequest('GET', 'http://www.example.com:1234/foo')),
             [
                 'url' => 'http://www.example.com:1234/foo',
                 'method' => 'GET',
@@ -142,7 +141,6 @@ final class RequestIntegrationTest extends TestCase
             (new ServerRequest('GET', 'http://www.example.com/foo?foo=bar&bar=baz', [], null, '1.1', ['REMOTE_ADDR' => '127.0.0.1']))
                 ->withHeader('Host', 'www.example.com')
                 ->withHeader('Authorization', 'foo')
-                ->withHeader('Proxy-Authorization', 'Basic dXNlcjpwYXNz')
                 ->withHeader('Cookie', 'bar')
                 ->withHeader('Set-Cookie', 'baz'),
             [
@@ -156,7 +154,6 @@ final class RequestIntegrationTest extends TestCase
                 'headers' => [
                     'Host' => ['www.example.com'],
                     'Authorization' => ['foo'],
-                    'Proxy-Authorization' => ['Basic dXNlcjpwYXNz'],
                     'Cookie' => ['bar'],
                     'Set-Cookie' => ['baz'],
                 ],
@@ -167,30 +164,11 @@ final class RequestIntegrationTest extends TestCase
 
         yield [
             [
-                'send_default_pii' => true,
-            ],
-            (new ServerRequest('GET', 'http://www.example.com', [], null, '1.1', ['REMOTE_ADDR' => '']))
-                ->withHeader('Host', 'www.example.com'),
-            [
-                'url' => 'http://www.example.com',
-                'method' => 'GET',
-                'cookies' => [],
-                'headers' => [
-                    'Host' => ['www.example.com'],
-                ],
-            ],
-            null,
-            null,
-        ];
-
-        yield [
-            [
                 'send_default_pii' => false,
             ],
             (new ServerRequest('GET', 'http://www.example.com/foo?foo=bar&bar=baz', [], null, '1.1', ['REMOTE_ADDR' => '127.0.0.1']))
                 ->withHeader('Host', 'www.example.com')
                 ->withHeader('Authorization', 'foo')
-                ->withHeader('Proxy-Authorization', 'Basic dXNlcjpwYXNz')
                 ->withHeader('Cookie', 'bar')
                 ->withHeader('Set-Cookie', 'baz'),
             [
@@ -200,7 +178,6 @@ final class RequestIntegrationTest extends TestCase
                 'headers' => [
                     'Host' => ['www.example.com'],
                     'Authorization' => ['[Filtered]'],
-                    'Proxy-Authorization' => ['[Filtered]'],
                     'Cookie' => ['[Filtered]'],
                     'Set-Cookie' => ['[Filtered]'],
                 ],
@@ -273,7 +250,7 @@ final class RequestIntegrationTest extends TestCase
                 'max_request_body_size' => 'small',
             ],
             (new ServerRequest('POST', 'http://www.example.com/foo'))
-                ->withHeader('Content-Length', (string) (10 ** 3))
+                ->withHeader('Content-Length', 10 ** 3)
                 ->withBody(Utils::streamFor('Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus at placerat est. Donec maximus odio augue, vitae bibendum nisi euismod nec. Nunc vel velit ligula. Ut non ultricies magna, non condimentum turpis. Donec pellentesque id nunc at facilisis. Sed fermentum ultricies nunc, id posuere ex ullamcorper quis. Sed varius tincidunt nulla, id varius nulla interdum sit amet. Pellentesque molestie sapien at mi tristique consequat. Nullam id eleifend arcu. Vivamus sed placerat neque. Ut sapien magna, elementum in euismod pretium, rhoncus vitae augue. Nam ullamcorper dui et tortor semper, eu feugiat elit faucibus. Curabitur vel auctor odio. Phasellus vestibulum ullamcorper dictum. Suspendisse fringilla, ipsum bibendum venenatis vulputate, nunc orci facilisis leo, commodo finibus mi arcu in turpis. Mauris ut ultrices est. Nam quis purus ut nulla interdum ornare. Proin in tellus egestas, commodo magna porta, consequat justo. Vivamus in convallis odio. Pellentesque porttitor, urna non gravida.')),
             [
                 'url' => 'http://www.example.com/foo',
