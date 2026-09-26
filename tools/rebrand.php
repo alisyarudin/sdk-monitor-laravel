@@ -243,6 +243,13 @@ if (!$checkOnly) {
     ];
     foreach (testPatches() as $file => [$find, $replace, $why]) {
         $path = "$root/$file";
+        // Tes itu tidak ada di versi hulu ini (mis. jalur 1.x yang lebih tua):
+        // tidak ada yang perlu di-patch. Bila berkasnya ADA tapi polanya tidak
+        // cocok, tetap gagal di bawah.
+        if (!file_exists($path)) {
+            echo "- patch tes dilewati (tidak ada di versi hulu ini): $file\n";
+            continue;
+        }
         $content = file_get_contents($path);
         if (strpos($content, $find) === false) {
             fwrite(STDERR, "✗ Patch tes tidak cocok lagi: $file ($why). Tinjau tes hulu.\n");
