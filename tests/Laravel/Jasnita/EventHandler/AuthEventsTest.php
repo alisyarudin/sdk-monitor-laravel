@@ -1,0 +1,151 @@
+<?php // Dihasilkan tools/rebrand.php dari hulu sdk-laravel — jangan diubah manual.
+
+namespace Jasnita\Monitor\Laravel\Tests\EventHandler;
+
+use Illuminate\Auth\Events\Authenticated;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\Model;
+use Jasnita\Monitor\Laravel\Tests\TestCase;
+
+class AuthEventsTest extends TestCase
+{
+    protected $setupConfig = [
+        'jasnita.send_default_pii' => true,
+    ];
+
+    public function testAuthenticatedEventFillsUserOnScope(): void
+    {
+        $user = new AuthEventsTestUserModel;
+
+        $user->forceFill([
+            'id' => 123,
+            'username' => 'username',
+            'email' => 'foo@example.com',
+        ]);
+
+        $scope = $this->getCurrentJasnitaScope();
+
+        $this->assertNull($scope->getUser());
+
+        $this->dispatchLaravelEvent(new Authenticated('test', $user));
+
+        $this->assertNotNull($scope->getUser());
+
+        $this->assertEquals(123, $scope->getUser()->getId());
+        $this->assertEquals('username', $scope->getUser()->getUsername());
+        $this->assertEquals('foo@example.com', $scope->getUser()->getEmail());
+    }
+
+    public function testAuthenticatedEventFillsUserOnScopeWhenUsernameIsNotAString(): void
+    {
+        $user = new AuthEventsTestUserModel();
+
+        $user->forceFill([
+            'id' => 123,
+            'username' => 456,
+        ]);
+
+        $scope = $this->getCurrentJasnitaScope();
+
+        $this->assertNull($scope->getUser());
+
+        $this->dispatchLaravelEvent(new Authenticated('test', $user));
+
+        $this->assertNotNull($scope->getUser());
+
+        $this->assertEquals(123, $scope->getUser()->getId());
+        $this->assertEquals('456', $scope->getUser()->getUsername());
+    }
+
+    public function testAuthenticatedEventFillsUserOnScopeWhenEmailIsNotAString(): void
+    {
+        $user = new AuthEventsTestUserModel();
+
+        $user->forceFill([
+            'id' => 123,
+            'email' => 456,
+        ]);
+
+        $scope = $this->getCurrentJasnitaScope();
+
+        $this->assertNull($scope->getUser());
+
+        $this->dispatchLaravelEvent(new Authenticated('test', $user));
+
+        $this->assertNotNull($scope->getUser());
+
+        $this->assertEquals(123, $scope->getUser()->getId());
+        $this->assertEquals('456', $scope->getUser()->getEmail());
+    }
+
+    public function testAuthenticatedEventFillsUserOnScopeWhenEmailCanBeCastToAString(): void
+    {
+        $user = new AuthEventsTestUserModel();
+
+        $user->forceFill([
+            'id' => 123,
+            'email' => new class {
+                public function __toString(): string
+                {
+                    return 'foo@example.com';
+                }
+            },
+        ]);
+
+        $scope = $this->getCurrentJasnitaScope();
+
+        $this->assertNull($scope->getUser());
+
+        $this->dispatchLaravelEvent(new Authenticated('test', $user));
+
+        $this->assertNotNull($scope->getUser());
+
+        $this->assertEquals(123, $scope->getUser()->getId());
+        $this->assertEquals('foo@example.com', $scope->getUser()->getEmail());
+    }
+
+    public function testAuthenticatedEventDoesNotSetEmailOnScopeWhenEmailAttributeIsNull(): void
+    {
+        $user = new AuthEventsTestUserModel();
+
+        $user->forceFill([
+            'id' => 123,
+            'email' => null,
+        ]);
+
+        $scope = $this->getCurrentJasnitaScope();
+
+        $this->assertNull($scope->getUser());
+
+        $this->dispatchLaravelEvent(new Authenticated('test', $user));
+
+        $this->assertNotNull($scope->getUser());
+
+        $this->assertEquals(123, $scope->getUser()->getId());
+        $this->assertNull($scope->getUser()->getEmail());
+    }
+
+    public function testAuthenticatedEventDoesNotFillUserOnScopeWhenPIIShouldNotBeSent(): void
+    {
+        $this->resetApplicationWithConfig([
+            'jasnita.send_default_pii' => false,
+        ]);
+
+        $user = new AuthEventsTestUserModel();
+
+        $user->id = 123;
+
+        $scope = $this->getCurrentJasnitaScope();
+
+        $this->assertNull($scope->getUser());
+
+        $this->dispatchLaravelEvent(new Authenticated('test', $user));
+
+        $this->assertNull($scope->getUser());
+    }
+}
+
+class AuthEventsTestUserModel extends Model implements Authenticatable
+{
+    use \Illuminate\Auth\Authenticatable;
+}

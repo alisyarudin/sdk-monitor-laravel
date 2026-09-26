@@ -1,24 +1,51 @@
 {
     "name": "jasnita/monitor-laravel",
-    "description": "Agent Jasnita Monitor untuk Laravel: error, performa, dan breadcrumb dikirim ke server Jasnita Monitor.",
+    "description": "Agent Jasnita Monitor untuk Laravel: error, performa, query, dan breadcrumb dikirim ke server Jasnita Monitor.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["laravel", "monitoring", "error-tracking", "jasnita"],
+    "keywords": [
+        "laravel",
+        "monitoring",
+        "error-tracking",
+        "jasnita"
+    ],
     "authors": [
-        { "name": "Ali Syarudin", "email": "ali.syarudin@jasnita.com" }
+        {
+            "name": "Ali Syarudin",
+            "email": "ali.syarudin@jasnita.com"
+        }
     ],
     "require": {
         "php": "^7.2 | ^8.0",
-        "illuminate/support": "^6.0 | ^7.0 | ^8.0 | ^9.0 | ^10.0 | ^11.0 | ^12.0",
-        "sentry/sentry-laravel": "^4.0"
+        "ext-curl": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "guzzlehttp/psr7": "^1.8.4|^2.1.1|^3.0.0",
+        "illuminate/support": "^6.0 | ^7.0 | ^8.0 | ^9.0 | ^10.0 | ^11.0 | ^12.0 | ^13.0",
+        "jean85/pretty-package-versions": "^1.5|^2.0.4",
+        "nyholm/psr7": "^1.0",
+        "psr/log": "^1.0|^2.0|^3.0",
+        "symfony/options-resolver": "^4.4.30|^5.0.11|^6.0|^7.0|^8.0",
+        "symfony/psr-http-message-bridge": "^1.0 | ^2.0 | ^6.0 | ^7.0 | ^8.0"
     },
     "autoload": {
-        "psr-4": { "Jasnita\\Monitor\\": "src/" }
+        "files": [
+            "src/Sdk/functions.php"
+        ],
+        "psr-4": {
+            "Jasnita\\Monitor\\Sdk\\": "src/Sdk/",
+            "Jasnita\\Monitor\\Laravel\\": "src/Laravel/",
+            "Jasnita\\Monitor\\": "src/"
+        }
     },
     "extra": {
         "laravel": {
-            "providers": ["Jasnita\\Monitor\\MonitorServiceProvider"],
-            "aliases": { "Monitor": "Jasnita\\Monitor\\Facades\\Monitor" }
+            "providers": [
+                "Jasnita\\Monitor\\MonitorServiceProvider"
+            ],
+            "aliases": {
+                "Monitor": "Jasnita\\Monitor\\Facades\\Monitor"
+            }
         }
     },
     "support": {
@@ -26,5 +53,30 @@
         "source": "https://github.com/alisyarudin/sdk-monitor-laravel"
     },
     "minimum-stability": "stable",
-    "prefer-stable": true
+    "prefer-stable": true,
+    "require-dev": {
+        "guzzlehttp/guzzle": "^7.2",
+        "laravel/folio": "^1.1",
+        "laravel/framework": "^6.0 | ^7.0 | ^8.0 | ^9.0 | ^10.0 | ^11.0 | ^12.0 | ^13.0",
+        "laravel/octane": "^2.15",
+        "laravel/pennant": "^1.0",
+        "livewire/livewire": "^2.0 | ^3.0 | ^4.0",
+        "mockery/mockery": "^1.3",
+        "monolog/monolog": "^1.6|^2.0|^3.0",
+        "orchestra/testbench": "^4.7 | ^5.1 | ^6.0 | ^7.0 | ^8.0 | ^9.0 | ^10.0 | ^11.0",
+        "phpunit/phpunit": "^8.5 | ^9.6 | ^10.4 | ^11.5"
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Jasnita\\Monitor\\Sdk\\Tests\\": "tests/Sdk/",
+            "Jasnita\\Monitor\\Laravel\\Tests\\": "tests/Laravel/Jasnita/",
+            "Jasnita\\Monitor\\Tests\\": "tests/Jasnita/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": false
+        }
+    }
 }

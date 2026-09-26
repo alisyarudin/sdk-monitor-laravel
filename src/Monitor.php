@@ -2,20 +2,21 @@
 
 namespace Jasnita\Monitor;
 
-use Sentry\Severity;
-use Sentry\State\Scope;
+use Jasnita\Monitor\Sdk\JasnitaSdk;
+use Jasnita\Monitor\Sdk\Severity;
+use Jasnita\Monitor\Sdk\State\Scope;
 use Throwable;
 
 /**
- * API kecil untuk kode aplikasi, supaya kode klien memanggil nama Jasnita
- * dan tidak bergantung langsung pada fungsi \Sentry\*.
+ * API kecil untuk kode aplikasi, supaya kode klien tidak bergantung pada
+ * susunan internal SDK (src/Sdk) yang dihasilkan ulang tiap pembaruan hulu.
  */
 class Monitor
 {
     /** @return string|null id event */
     public function captureException(Throwable $e)
     {
-        $id = \Sentry\captureException($e);
+        $id = \Jasnita\Monitor\Sdk\captureException($e);
 
         return $id === null ? null : (string) $id;
     }
@@ -23,28 +24,28 @@ class Monitor
     /** @return string|null id event */
     public function captureMessage($message, $level = 'info')
     {
-        $id = \Sentry\captureMessage((string) $message, new Severity($level));
+        $id = \Jasnita\Monitor\Sdk\captureMessage((string) $message, new Severity($level));
 
         return $id === null ? null : (string) $id;
     }
 
     public function setUser(array $user)
     {
-        \Sentry\configureScope(function (Scope $scope) use ($user) {
+        \Jasnita\Monitor\Sdk\configureScope(function (Scope $scope) use ($user) {
             $scope->setUser($user);
         });
     }
 
     public function setTag($key, $value)
     {
-        \Sentry\configureScope(function (Scope $scope) use ($key, $value) {
+        \Jasnita\Monitor\Sdk\configureScope(function (Scope $scope) use ($key, $value) {
             $scope->setTag((string) $key, (string) $value);
         });
     }
 
     public function setContext($name, array $data)
     {
-        \Sentry\configureScope(function (Scope $scope) use ($name, $data) {
+        \Jasnita\Monitor\Sdk\configureScope(function (Scope $scope) use ($name, $data) {
             $scope->setContext((string) $name, $data);
         });
     }
@@ -52,7 +53,7 @@ class Monitor
     /** Kirim semua yang masih tertahan (mis. di akhir command panjang). */
     public function flush($timeoutSeconds = 2)
     {
-        $client = \Sentry\SentrySdk::getCurrentHub()->getClient();
+        $client = JasnitaSdk::getCurrentHub()->getClient();
         if ($client !== null) {
             $client->flush((int) $timeoutSeconds);
         }

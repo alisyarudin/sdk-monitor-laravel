@@ -1,0 +1,260 @@
+<?php // Dihasilkan tools/rebrand.php dari hulu sdk-php — jangan diubah manual.
+
+declare(strict_types=1);
+
+namespace Jasnita\Monitor\Sdk\Tests;
+
+use PHPUnit\Framework\TestCase;
+use Jasnita\Monitor\Sdk\Client;
+use Jasnita\Monitor\Sdk\Metrics\MetricsAggregator;
+use Jasnita\Monitor\Sdk\Metrics\Types\CounterMetric;
+use Jasnita\Monitor\Sdk\Metrics\Types\DistributionMetric;
+use Jasnita\Monitor\Sdk\Metrics\Types\GaugeMetric;
+use Jasnita\Monitor\Sdk\Metrics\Types\Metric;
+use Jasnita\Monitor\Sdk\Options;
+use Jasnita\Monitor\Sdk\State\HubAdapter;
+use Jasnita\Monitor\Sdk\State\Scope;
+
+use function Jasnita\Monitor\Sdk\traceMetrics;
+
+final class TraceMetricsTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        HubAdapter::getInstance()->bindClient(new Client(new Options(), StubTransport::getInstance()));
+        StubTransport::$events = [];
+    }
+
+    public function testCounterMetrics(): void
+    {
+        traceMetrics()->count('test-count', 2, ['foo' => 'bar']);
+        traceMetrics()->count('test-count', 2, ['foo' => 'bar']);
+        traceMetrics()->flush();
+
+        $this->assertCount(1, StubTransport::$events);
+        $event = StubTransport::$events[0];
+        $this->assertCount(2, $event->getMetrics());
+        $metrics = $event->getMetrics();
+        $metric = $metrics[0];
+        $this->assertEquals('test-count', $metric->getName());
+        $this->assertEquals(CounterMetric::TYPE, $metric->getType());
+        $this->assertEquals(2, $metric->getValue());
+        $this->assertArrayHasKey('foo', $metric->getAttributes()->toSimpleArray());
+    }
+
+    public function testGaugeMetrics(): void
+    {
+        traceMetrics()->gauge('test-gauge', 10, ['foo' => 'bar']);
+        traceMetrics()->flush();
+
+        $this->assertCount(1, StubTransport::$events);
+        $event = StubTransport::$events[0];
+        $this->assertCount(1, $event->getMetrics());
+        $metrics = $event->getMetrics();
+        $metric = $metrics[0];
+        $this->assertEquals('test-gauge', $metric->getName());
+        $this->assertEquals(GaugeMetric::TYPE, $metric->getType());
+        $this->assertEquals(10, $metric->getValue());
+        $this->assertArrayHasKey('foo', $metric->getAttributes()->toSimpleArray());
+    }
+
+    public function testDistributionMetrics(): void
+    {
+        traceMetrics()->distribution('test-distribution', 10, ['foo' => 'bar']);
+        traceMetrics()->flush();
+        $this->assertCount(1, StubTransport::$events);
+        $event = StubTransport::$events[0];
+        $this->assertCount(1, $event->getMetrics());
+        $metrics = $event->getMetrics();
+        $metric = $metrics[0];
+        $this->assertEquals('test-distribution', $metric->getName());
+        $this->assertEquals(DistributionMetric::TYPE, $metric->getType());
+        $this->assertEquals(10, $metric->getValue());
+        $this->assertArrayHasKey('foo', $metric->getAttributes()->toSimpleArray());
+    }
+
+    public function testFlushesImmediatelyWhenMetricFlushThresholdIsReached(): void
+    {
+        HubAdapter::getInstance()->bindClient(new Client(new Options([
+            'metric_flush_threshold' => 2,
+        ]), StubTransport::getInstance()));
+
+        traceMetrics()->count('first-metric', 1, ['foo' => 'bar']);
+
+        $this->assertCount(0, StubTransport::$events);
+
+        traceMetrics()->count('second-metric', 2, ['foo' => 'bar']);
+
+        $this->assertCount(1, StubTransport::$events);
+        $event = StubTransport::$events[0];
+
+        $this->assertCount(2, $event->getMetrics());
+        $this->assertSame('first-metric', $event->getMetrics()[0]->getName());
+        $this->assertSame('second-metric', $event->getMetrics()[1]->getName());
+    }
+
+    public function testDoesNotFlushImmediatelyWhenMetricFlushThresholdIsNull(): void
+    {
+        HubAdapter::getInstance()->bindClient(new Client(new Options([
+            'metric_flush_threshold' => null,
+        ]), StubTransport::getInstance()));
+
+        traceMetrics()->count('first-metric', 1, ['foo' => 'bar']);
+        traceMetrics()->count('second-metric', 2, ['foo' => 'bar']);
+
+        $this->assertCount(0, StubTransport::$events);
+
+        traceMetrics()->flush();
+
+        $this->assertCount(1, StubTransport::$events);
+        $this->assertCount(2, StubTransport::$events[0]->getMetrics());
+    }
+
+    public function testMetricsBufferFullWhenMetricFlushThresholdIsNull(): void
+    {
+        HubAdapter::getInstance()->bindClient(new Client(new Options([
+            'metric_flush_threshold' => null,
+        ]), StubTransport::getInstance()));
+
+        for ($i = 0; $i < MetricsAggregator::METRICS_BUFFER_SIZE + 100; ++$i) {
+            traceMetrics()->count('test', 1, ['foo' => 'bar']);
+        }
+
+        traceMetrics()->flush();
+
+        $this->assertCount(1, StubTransport::$events);
+        $event = StubTransport::$events[0];
+        $metrics = $event->getMetrics();
+
+        $this->assertCount(MetricsAggregator::METRICS_BUFFER_SIZE, $metrics);
+    }
+
+    public function testMetricSentWhenEnableMetricsIsFalse(): void
+    {
+        HubAdapter::getInstance()->bindClient(new Client(new Options([
+            'enable_metrics' => false,
+        ]), StubTransport::getInstance()));
+
+        traceMetrics()->count('test-count', 2, ['foo' => 'bar']);
+        traceMetrics()->flush();
+
+        $this->assertCount(1, StubTransport::$events);
+        $this->assertCount(1, StubTransport::$events[0]->getMetrics());
+        $this->assertSame('test-count', StubTransport::$events[0]->getMetrics()[0]->getName());
+    }
+
+    public function testBeforeSendMetricExceptionDropsMetricAndIsLogged(): void
+    {
+        StubLogger::$logs = [];
+        HubAdapter::getInstance()->bindClient(new Client(new Options([
+            'before_send_metric' => static function (): void {
+                throw new \RuntimeException('test');
+            },
+            'logger' => StubLogger::getInstance(),
+        ]), StubTransport::getInstance()));
+
+        traceMetrics()->count('test-count', 2);
+        traceMetrics()->flush();
+
+        $this->assertEmpty(StubTransport::$events);
+        $this->assertContains([
+            'level' => 'error',
+            'message' => 'The "before_send_metric" callback failed with exception: "test".',
+            'context' => [],
+        ], StubLogger::$logs);
+    }
+
+    public function testBeforeSendMetricAltersContent(): void
+    {
+        HubAdapter::getInstance()->bindClient(new Client(new Options([
+            'before_send_metric' => static function (Metric $metric) {
+                $metric->setValue(99999);
+
+                return $metric;
+            },
+        ]), StubTransport::getInstance()));
+
+        traceMetrics()->count('test-count', 2, ['foo' => 'bar']);
+        traceMetrics()->flush();
+
+        $this->assertCount(1, StubTransport::$events);
+        $event = StubTransport::$events[0];
+
+        $this->assertCount(1, $event->getMetrics());
+        $metric = $event->getMetrics()[0];
+        $this->assertEquals(99999, $metric->getValue());
+    }
+
+    public function testIntType(): void
+    {
+        traceMetrics()->count('test-count', 2, ['foo' => 'bar']);
+        traceMetrics()->flush();
+
+        $this->assertCount(1, StubTransport::$events);
+        $event = StubTransport::$events[0];
+
+        $this->assertCount(1, $event->getMetrics());
+        $metric = $event->getMetrics()[0];
+
+        $this->assertEquals('test-count', $metric->getName());
+        $this->assertEquals(2, $metric->getValue());
+    }
+
+    public function testFloatType(): void
+    {
+        traceMetrics()->gauge('test-gauge', 10.50, ['foo' => 'bar']);
+        traceMetrics()->flush();
+
+        $this->assertCount(1, StubTransport::$events);
+        $event = StubTransport::$events[0];
+
+        $this->assertCount(1, $event->getMetrics());
+        $metric = $event->getMetrics()[0];
+
+        $this->assertEquals('test-gauge', $metric->getName());
+        $this->assertEquals(10.50, $metric->getValue());
+    }
+
+    public function testNullAttributeValueIsStringified(): void
+    {
+        traceMetrics()->count('test-count', 2, ['foo' => null]);
+        traceMetrics()->flush();
+
+        $this->assertCount(1, StubTransport::$events);
+        $event = StubTransport::$events[0];
+
+        $this->assertCount(1, $event->getMetrics());
+        $metric = $event->getMetrics()[0];
+
+        $this->assertSame('null', $metric->getAttributes()->toSimpleArray()['foo']);
+    }
+
+    public function testInvalidTypeIsDiscarded(): void
+    {
+        // @phpstan-ignore-next-line
+        traceMetrics()->count('test-count', 'test-value');
+        traceMetrics()->flush();
+
+        $this->assertEmpty(StubTransport::$events);
+    }
+
+    public function testMetricsUseExternalPropagationContextWhenNoLocalSpanExists(): void
+    {
+        Scope::registerExternalPropagationContext(static function (): array {
+            return [
+                'trace_id' => '771a43a4192642f0b136d5159a501700',
+                'span_id' => '1234567890abcdef',
+            ];
+        });
+
+        traceMetrics()->count('test-count', 2, ['foo' => 'bar']);
+        traceMetrics()->flush();
+
+        $this->assertCount(1, StubTransport::$events);
+        $metric = StubTransport::$events[0]->getMetrics()[0];
+        $this->assertSame('771a43a4192642f0b136d5159a501700', (string) $metric->getTraceId());
+        $this->assertSame('1234567890abcdef', (string) $metric->getSpanId());
+
+        Scope::clearExternalPropagationContext();
+    }
+}

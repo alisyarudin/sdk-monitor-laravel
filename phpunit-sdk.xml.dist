@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Test suite hulu untuk inti SDK (src/Sdk), setelah rename. vendor/bin/phpunit -c phpunit-sdk.xml.dist -->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         backupGlobals="true"
+         colors="true"
+         bootstrap="tests/Sdk/bootstrap.php"
+         cacheResult="false"
+         beStrictAboutOutputDuringTests="true">
+    <php>
+        <env name="SYMFONY_DEPRECATIONS_HELPER" value="max[self]=0"/>
+    </php>
+    <testsuites>
+        <testsuite name="sdk">
+            <directory>tests/Sdk</directory>
+            <directory suffix=".phpt">tests/Sdk/phpt</directory>
+            <!-- OpenTelemetry & OOM butuh dependensi/PHP khusus; sama seperti hulu, suite terpisah. -->
+            <exclude>tests/Sdk/Integration/OTLPIntegrationTest.php</exclude>
+            <exclude>tests/Sdk/OpenTelemetry</exclude>
+            <exclude>tests/Sdk/phpt-oom</exclude>
+        </testsuite>
+    </testsuites>
+    <extensions>
+        <extension class="Jasnita\Monitor\Sdk\Tests\JasnitaSdkExtension"/>
+    </extensions>
+</phpunit>

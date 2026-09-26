@@ -1,0 +1,38 @@
+<?php // Dihasilkan tools/rebrand.php dari hulu sdk-laravel — jangan diubah manual.
+
+namespace Jasnita\Monitor\Laravel;
+
+use Monolog\Handler\FingersCrossedHandler;
+use Monolog\Logger;
+use Illuminate\Log\LogManager;
+use Jasnita\Monitor\Sdk\State\HubInterface;
+
+class LogChannel extends LogManager
+{
+    public function __invoke(array $config = []): Logger
+    {
+        $handler = new JasnitaHandler(
+            $this->app->make(HubInterface::class),
+            $config['level'] ?? Logger::DEBUG,
+            $config['bubble'] ?? true,
+            $config['report_exceptions'] ?? true,
+            isset($config['formatter']) && $config['formatter'] !== 'default'
+        );
+
+        if (isset($config['action_level'])) {
+            $handler = new FingersCrossedHandler($handler, $config['action_level']);
+
+            // Consume the `action_level` config option since newer Laravel versions also support this option
+            // and will wrap the handler again in another `FingersCrossedHandler` if we leave the option set
+            // See: https://github.com/laravel/framework/pull/40305 (release v8.79.0)
+            unset($config['action_level']);
+        }
+
+        return new Logger(
+            $this->parseChannel($config),
+            [
+                $this->prepareHandler($handler, $config),
+            ]
+        );
+    }
+}

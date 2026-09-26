@@ -7,8 +7,8 @@ use Illuminate\Console\Command;
 /**
  * php artisan monitor:install --dsn=https://<key>@monitor.jasnita.com/<id>
  *
- * Mengisi .env dan memberi tahu bila aplikasi masih memasang pelapor Sentry
- * sendiri (yang akan membuat setiap error terkirim dua kali).
+ * Mengisi .env dan memberi tahu bila aplikasi masih memasang pelapor
+ * exception manual (yang akan membuat setiap error terkirim dua kali).
  */
 class InstallCommand extends Command
 {
@@ -75,7 +75,7 @@ class InstallCommand extends Command
 
     /**
      * Paket ini sudah memasang pelapor exception sendiri. Integration::handles()
-     * atau captureUnhandledException() yang tertinggal dari pemasangan Sentry
+     * atau captureUnhandledException() yang tertinggal dari pemasangan agent
      * sebelumnya membuat setiap error terkirim dua kali.
      */
     private function warnDuplicateReporting()
@@ -90,7 +90,7 @@ class InstallCommand extends Command
             }
             $src = (string) file_get_contents($file);
             if (strpos($src, 'Integration::handles') !== false || strpos($src, 'captureUnhandledException') !== false) {
-                $this->warn('Ditemukan pelapor Sentry manual di ' . str_replace($this->laravel->basePath() . '/', '', $file) . '.');
+                $this->warn('Ditemukan pelapor exception manual di ' . str_replace($this->laravel->basePath() . '/', '', $file) . '.');
                 $this->warn('Hapus baris itu, ATAU set JASNITA_MONITOR_AUTO_REPORT=false — jangan keduanya aktif.');
             }
         }

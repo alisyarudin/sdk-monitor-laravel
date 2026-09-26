@@ -6,17 +6,19 @@ use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\ServiceProvider;
 use Jasnita\Monitor\Console\InstallCommand;
 use Jasnita\Monitor\Console\TestCommand;
-use Jasnita\Monitor\Support\SdkIdentity;
-use Sentry\Laravel\Integration;
-use Sentry\State\Scope;
+use Jasnita\Monitor\Laravel\Integration;
+use Jasnita\Monitor\Laravel\ServiceProvider as SdkServiceProvider;
+use Jasnita\Monitor\Laravel\Tracing\ServiceProvider as SdkTracingServiceProvider;
+use Jasnita\Monitor\Sdk\State\Scope;
 use Throwable;
 
 /**
- * Menerjemahkan config/jasnita-monitor.php menjadi konfigurasi SDK di
- * bawahnya (sentry/sentry-laravel), lalu memasang pelapor exception.
+ * Pintu masuk paket. Menerjemahkan config/jasnita-monitor.php ke konfigurasi
+ * SDK internal (config 'jasnita', kode di src/Sdk & src/Laravel yang
+ * dihasilkan tools/rebrand.php), mendaftarkan provider SDK, lalu memasang
+ * pelapor exception.
  *
- * Aplikasi klien cukup mengenal JASNITA_MONITOR_*; mesin pengirimnya — yang
- * sudah teruji di banyak versi Laravel/PHP — tetap dirawat hulunya.
+ * Aplikasi klien cukup mengenal JASNITA_MONITOR_* dan facade Monitor.
  */
 class MonitorServiceProvider extends ServiceProvider
 {
@@ -27,8 +29,13 @@ class MonitorServiceProvider extends ServiceProvider
 
         // Diterapkan di register(), bukan boot(): client SDK dibuat saat
         // pertama kali dipakai, dan semua register() berjalan sebelum boot()
-        // mana pun — jadi urutan provider paket tidak berpengaruh.
+        // mana pun.
         $this->applySdkConfig();
+
+        // Provider SDK didaftarkan dari sini (bukan package discovery) supaya
+        // selalu SETELAH config di atas diterapkan.
+        $this->app->register(SdkServiceProvider::class);
+        $this->app->register(SdkTracingServiceProvider::class);
     }
 
     public function boot()
@@ -77,21 +84,12 @@ class MonitorServiceProvider extends ServiceProvider
             'enable_metrics'     => false,
         ];
 
-        // Identitas agent Jasnita di setiap event — kecuali aplikasi sudah
-        // memasang before_send sendiri; itu tidak ditimpa.
-        $existing = (array) $config->get('sentry', []);
-        foreach (['before_send', 'before_send_transaction'] as $hook) {
-            if (empty($existing[$hook])) {
-                $sdk[$hook] = [SdkIdentity::class, 'beforeSend'];
-            }
-        }
-
         $advanced = isset($m['advanced']) && is_array($m['advanced']) ? $m['advanced'] : [];
 
-        // Nilai milik aplikasi (config/sentry.php yang dipublish) tetap
-        // dihormati untuk kunci yang tidak kita atur; kunci kita menang.
-        $config->set('sentry', array_replace_recursive(
-            (array) $config->get('sentry', []),
+        // Nilai config/jasnita.php (bila dipublish aplikasi) tetap dihormati
+        // untuk kunci yang tidak kita atur; kunci kita menang.
+        $config->set('jasnita', array_replace_recursive(
+            (array) $config->get('jasnita', []),
             $sdk,
             $advanced
         ));
@@ -104,7 +102,7 @@ class MonitorServiceProvider extends ServiceProvider
             return;
         }
 
-        \Sentry\configureScope(function (Scope $scope) use ($tags) {
+        \Jasnita\Monitor\Sdk\configureScope(function (Scope $scope) use ($tags) {
             $scope->setTags(array_map('strval', $tags));
         });
     }

@@ -45,7 +45,7 @@ Belum punya `reportable()`, jadi tambahkan di `app/Exceptions/Handler.php`:
 ```php
 public function report(Throwable $e)
 {
-    \Sentry\Laravel\Integration::captureUnhandledException($e);
+    \Jasnita\Monitor\Laravel\Integration::captureUnhandledException($e);
     parent::report($e);
 }
 ```
@@ -78,12 +78,37 @@ Monitor::setUser(['id' => $user->id, 'email' => $user->email]);
 Monitor::setTag('tenant', $tenantId);                // bisa difilter di dashboard
 ```
 
-## Pindah dari sentry/sentry-laravel
+## Naik dari v1
 
-1. `composer remove sentry/sentry-laravel && composer require jasnita/monitor-laravel`
-2. Hapus `Integration::handles($exceptions)` di `bootstrap/app.php` (atau baris Sentry di `Handler.php`) — `monitor:install` memperingatkan bila masih ada. Bila keduanya aktif, setiap error terkirim dua kali.
-3. Ganti `SENTRY_LARAVEL_DSN` dengan `JASNITA_MONITOR_DSN`.
+v2 membawa SDK sendiri — tidak lagi menarik paket pihak ketiga untuk
+pengiriman. Konfigurasi, perintah, dan facade tidak berubah:
 
-## Catatan teknis
+```bash
+composer update jasnita/monitor-laravel
+php artisan config:clear
+php artisan monitor:test
+```
 
-Mesin pengirimnya adalah [`sentry/sentry-laravel`](https://github.com/getsentry/sentry-laravel) (MIT), dipakai sebagai dependensi — paket ini hanya konfigurasi, perintah, dan API Jasnita di atasnya. Dengan begitu dukungan versi Laravel/PHP baru dan perbaikan keamanan mengikuti hulunya tanpa porting manual. Server Jasnita Monitor menerima format kirimannya.
+Server Jasnita Monitor harus sudah versi yang mengenali header
+`X-Jasnita-Auth` (ingest per 2026-09) sebelum aplikasi dinaikkan ke v2.
+
+## Menyelidiki query lambat & N+1
+
+Dengan `JASNITA_MONITOR_TRACES_SAMPLE_RATE` > 0, setiap query di request yang
+ter-sampling dicatat. Halaman **Database** di dashboard merangkum query paling
+berat, paling lambat, dan pola N+1 (query yang sama berulang di satu request)
+beserta route-nya.
+
+## Untuk pengembang paket
+
+Kode di `src/Sdk/` dan `src/Laravel/` **dihasilkan** oleh `tools/rebrand.php`
+dari proyek sumber terbuka berlisensi MIT (asal-usul dan teks lisensi di
+`LICENSES/`). Jangan diubah manual — perubahan tertimpa saat pembaruan.
+Kustomisasi Jasnita ada di `src/*.php`, `src/Console`, `src/Facades`,
+`src/Support`, dan `config/jasnita-monitor.php`.
+
+```bash
+# naikkan versi hulu di tools/upstream.json, lalu:
+php tools/rebrand.php     # tarik ulang + ganti nama; gagal bila ada nama hulu tersisa
+tools/test.sh             # test suite hulu (1.700+ tes) terhadap hasilnya
+```
